@@ -8,6 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12,<4"
 dependencies = [
+    "pydantic-settings (>=2.11.0,<3.0.0)",
+    "pydantic[email,mypy] (>=2.11.9,<3.0.0)",
 ]
 
 
@@ -17,6 +19,16 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 package-mode = false
+
+[tool.poetry.group.collector.dependencies]
+redis = "^6.4.0"
+
+[tool.poetry.group.aggregator.dependencies]
+redis = "^6.4.0"
+
+[tool.poetry.group.api.dependencies]
+fastapi = "^0.117.1"
+uvicorn = "^0.37.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.13.1"
