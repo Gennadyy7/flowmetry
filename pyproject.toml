@@ -1,0 +1,78 @@
+[project]
+name = "flowmetry"
+version = "0.1.0"
+description = "System for collecting, aggregating, and preparing web application performance metrics."
+authors = [
+    {name = "davies7", email = "pprom5573@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12,<4"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.13.1"
+mypy = "^1.18.2"
+pytest = "^8.4.2"
+pre-commit = "^4.3.0"
+pytest-cov = "^7.0.0"
+pytest-asyncio = "^1.2.0"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4"]
+ignore = ["E501"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+show_error_codes = true
+mypy_path = ["."]
+files = ["aggregator", "api", "collector"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = [
+    "aggregator/tests",
+    "api/tests",
+    "collector/tests"
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "--doctest-modules",
+    "--cov=aggregator",
+    "--cov=api",
+    "--cov=collector",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+filterwarnings = ["error"]
