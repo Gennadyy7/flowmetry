@@ -5,6 +5,23 @@ services:
       dockerfile: Dockerfile.api
     ports:
       - "8000:8000"
+    depends_on:
+      collector:
+        condition: service_healthy
     env_file:
       - ./api/.env
     restart: unless-stopped
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    env_file:
+      - ./collector/.env
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "print('ok')" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

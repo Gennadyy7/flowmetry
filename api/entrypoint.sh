@@ -1,4 +1,4 @@
 #!/bin/sh
 
-echo "Starting FastAPI application..."
+echo "Starting API service..."
 exec python -m api.main
