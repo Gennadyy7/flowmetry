@@ -7,6 +7,7 @@ import uvicorn
 
 from collector.config import settings
 from collector.redis_stream_client import RedisStreamClient
+from collector.router import router as metrics_router
 
 redis_stream_client = RedisStreamClient(
     stream_name=settings.REDIS_STREAM_NAME,
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(metrics_router)
 
 
 def main() -> None:
