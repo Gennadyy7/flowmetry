@@ -7,6 +7,8 @@ import uuid
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError, TimeoutError
 
+from collector.config import settings
+
 
 class RedisStreamClient:
     def __init__(
@@ -88,3 +90,12 @@ class RedisStreamClient:
                 else:
                     # logger.warning("Buffer overflow, dropping metric", trace_id=trace_id)
                     pass
+
+
+redis_stream_client = RedisStreamClient(
+    stream_name=settings.REDIS_STREAM_NAME,
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    db=settings.REDIS_DB,
+    password=settings.REDIS_PASSWORD,
+)

@@ -1,14 +1,15 @@
 from fastapi import APIRouter, HTTPException
 
 from collector.converters import convert_otlp_to_internal
-from collector.main import redis_stream_client
 from collector.otlp.schemas import OTLPMetricsRequest
+from collector.redis_stream_client import redis_stream_client
 
 router = APIRouter(prefix='/v1')
 
 
 @router.post('/metrics')
 async def ingest_metrics(request: OTLPMetricsRequest) -> dict[str, int]:
+    print(f'{request=}')
     try:
         points = convert_otlp_to_internal(request)
         for point in points:

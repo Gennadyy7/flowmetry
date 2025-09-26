@@ -6,16 +6,8 @@ from fastapi import FastAPI
 import uvicorn
 
 from collector.config import settings
-from collector.redis_stream_client import RedisStreamClient
+from collector.redis_stream_client import redis_stream_client
 from collector.router import router as metrics_router
-
-redis_stream_client = RedisStreamClient(
-    stream_name=settings.REDIS_STREAM_NAME,
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    db=settings.REDIS_DB,
-    password=settings.REDIS_PASSWORD,
-)
 
 
 @asynccontextmanager
