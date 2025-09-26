@@ -8,6 +8,8 @@ services:
     depends_on:
       collector:
         condition: service_healthy
+      aggregator:
+        condition: service_healthy
     env_file:
       - ./api/.env
     restart: unless-stopped
@@ -16,8 +18,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.collector
+    ports:
+      - "8001:8000"
+    depends_on:
+      aggregator:
+        condition: service_healthy
     env_file:
       - ./collector/.env
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "print('ok')" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile.aggregator
+    env_file:
+      - ./aggregator/.env
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "python", "-c", "print('ok')" ]

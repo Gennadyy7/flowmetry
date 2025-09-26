@@ -1,3 +1,6 @@
+import uuid
+
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -6,18 +9,17 @@ class Settings(BaseSettings):
         'extra': 'ignore',
         'env_file': '.env',
         'env_file_encoding': 'utf-8',
-        'frozen': True,
     }
-
-    API_HOST: str
-    API_PORT: int
-    API_RELOAD: bool
 
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_PASSWORD: str | None = None
     REDIS_DB: int = 0
     REDIS_STREAM_NAME: str
+    REDIS_CONSUMER_GROUP: str
+    REDIS_CONSUMER_NAME: str = Field(
+        default_factory=lambda: f'agg-{uuid.uuid4().hex[:8]}'
+    )
 
 
 settings = Settings()  # type: ignore[call-arg]

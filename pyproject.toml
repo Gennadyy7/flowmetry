@@ -22,6 +22,8 @@ package-mode = false
 
 [tool.poetry.group.collector.dependencies]
 redis = "^6.4.0"
+fastapi = "^0.117.1"
+uvicorn = "^0.37.0"
 
 [tool.poetry.group.aggregator.dependencies]
 redis = "^6.4.0"
