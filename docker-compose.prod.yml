@@ -23,6 +23,8 @@ services:
     depends_on:
       aggregator:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - ./collector/.env
     restart: unless-stopped
@@ -31,7 +33,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
 
   aggregator:
     build:
@@ -45,4 +47,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
+
+  redis:
+    image: redis:7.2-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  redis_data:
