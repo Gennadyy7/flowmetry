@@ -4,10 +4,10 @@ from pydantic import BaseModel
 
 
 class AnyValue(BaseModel):
-    stringValue: str | None = None
-    boolValue: bool | None = None
-    intValue: str | None = None
-    doubleValue: float | None = None
+    string_value: str | None = None
+    bool_value: bool | None = None
+    int_value: str | None = None
+    double_value: float | None = None
 
 
 class KeyValue(BaseModel):
@@ -17,34 +17,34 @@ class KeyValue(BaseModel):
 
 class NumberDataPoint(BaseModel):
     attributes: list[KeyValue] = []
-    startTimeUnixNano: str
-    timeUnixNano: str
-    asInt: str | None = None
-    asDouble: float | None = None
+    start_time_unix_nano: str | None = None
+    time_unix_nano: str
+    as_int: str | None = None
+    as_double: float | None = None
 
 
 class HistogramDataPoint(BaseModel):
     attributes: list[KeyValue] = []
-    startTimeUnixNano: str
-    timeUnixNano: str
+    start_time_unix_nano: str | None = None
+    time_unix_nano: str
     count: str
     sum: float | None = None
-    bucketCounts: list[str]
-    explicitBounds: list[float] = []
+    bucket_counts: list[str]
+    explicit_bounds: list[float] = []
 
 
 class Sum(BaseModel):
-    dataPoints: list[NumberDataPoint]
-    aggregationTemporality: str
-    isMonotonic: bool
+    data_points: list[NumberDataPoint]
+    aggregation_temporality: str
+    is_monotonic: bool
 
 
 class Gauge(BaseModel):
-    dataPoints: list[NumberDataPoint]
+    data_points: list[NumberDataPoint]
 
 
 class Histogram(BaseModel):
-    dataPoints: list[HistogramDataPoint]
+    data_points: list[HistogramDataPoint]
 
 
 class Metric(BaseModel):
@@ -67,8 +67,8 @@ class Resource(BaseModel):
 
 class ResourceMetrics(BaseModel):
     resource: Resource
-    scopeMetrics: list[ScopeMetrics]
+    scope_metrics: list[ScopeMetrics]
 
 
 class OTLPMetricsRequest(BaseModel):
-    resourceMetrics: list[ResourceMetrics]
+    resource_metrics: list[ResourceMetrics]

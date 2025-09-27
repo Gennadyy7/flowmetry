@@ -15,7 +15,10 @@ async def ingest_metrics(
     print(f'{request=}')
     try:
         points = convert_otlp_to_internal(request)
+        i = 1
         for point in points:
+            print(f'{i=} {point=}')
+            i += 1
             await redis_stream_client.send_message(point.model_dump())
         return {'received': len(points)}
     except Exception as e:

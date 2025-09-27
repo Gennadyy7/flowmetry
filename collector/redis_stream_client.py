@@ -76,13 +76,17 @@ class RedisStreamClient:
         data = json.dumps(message_with_id, ensure_ascii=False).encode('utf-8')
 
         try:
-            await self._send_to_redis(data)
-
+            """
+            This code guarantees FIFO, but this section is extremely redundant for metrics.
+            This section should be changed in the future as part of testing and comparison,
+            possibly without guaranteeing any order.
+            """
             async with self._buffer_lock:
                 while self._buffer:
-                    buffered_data = self._buffer.pop(0)
+                    buffered_data = self._buffer[0]
                     await self._send_to_redis(buffered_data)
-
+                    self._buffer.pop(0)
+                await self._send_to_redis(data)
         except (ConnectionError, TimeoutError):
             async with self._buffer_lock:
                 if len(self._buffer) < self.buffer_size:
