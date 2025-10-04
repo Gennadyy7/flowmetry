@@ -1,11 +1,28 @@
+import logging
+
 from aggregator.schemas import MetricPoint
+
+logger = logging.getLogger(__name__)
 
 
 class TimescaleDB:
-    def __init__(self) -> None: ...
+    def __init__(self) -> None:
+        logger.info('The database is initialized')
 
-    async def connect(self) -> None: ...
+    @staticmethod
+    async def connect() -> None:
+        logger.info('Connection to the database is successful')
 
-    async def insert_metric(self, point: MetricPoint) -> None: ...
+    @staticmethod
+    async def insert_metric(point: MetricPoint) -> None:
+        logger.info(
+            'A metric has been inserted into the database',
+            extra={'metric_point': point},
+        )
 
-    async def close(self) -> None: ...
+    @staticmethod
+    async def close() -> None:
+        logger.info('The database connection is closed')
+
+
+timescale_db = TimescaleDB()

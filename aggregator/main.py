@@ -5,6 +5,7 @@ import logging
 import signal
 
 from aggregator.config import settings
+from aggregator.db import timescale_db
 from aggregator.logging import setup_logging
 from aggregator.redis_stream_client import redis_stream_client
 
@@ -21,11 +22,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan() -> AsyncGenerator[None, None]:
     await redis_stream_client.start()
+    await timescale_db.connect()
     try:
         yield
     finally:
         logger.info('Shutting down...')
         await asyncio.gather(
+            timescale_db.close(),
             redis_stream_client.stop(),
             return_exceptions=True,
         )
