@@ -31,5 +31,11 @@ class Settings(BaseSettings):
 
     WORKER_SHUTDOWN_TIMEOUT: float = 10.0
 
+    DB_HOST: str
+    DB_PORT: int
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
+
 
 settings = Settings()  # type: ignore[call-arg]
