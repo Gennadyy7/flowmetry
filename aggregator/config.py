@@ -29,5 +29,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str
     LOG_FORMAT: str
 
+    WORKER_SHUTDOWN_TIMEOUT: float = 10.0
+
 
 settings = Settings()  # type: ignore[call-arg]

@@ -33,7 +33,9 @@ async def lifespan() -> AsyncGenerator[None, None]:
         logger.info('Shutting down...')
         aggregation_worker.stop()
         try:
-            await asyncio.wait_for(worker_task, timeout=10.0)
+            await asyncio.wait_for(
+                worker_task, timeout=settings.WORKER_SHUTDOWN_TIMEOUT
+            )
             logger.info('Aggregation worker stopped gracefully')
         except TimeoutError:
             logger.warning('Worker did not stop in time, cancelling...')
