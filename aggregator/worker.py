@@ -32,14 +32,14 @@ class AggregationWorker:
                         await self.consumer.ack(msg_id)
                         logger.debug(
                             'Metric processed',
-                            extra={'msg_id': msg_id, 'name': point.name},
+                            extra={'msg_id': msg_id, 'metric_name': point.name},
                         )
                     except Exception as e:
                         logger.error(
                             'Failed to save metric to DB',
                             extra={
                                 'msg_id': msg_id,
-                                'name': point.name,
+                                'metric_name': point.name,
                                 'error': str(e),
                             },
                         )
@@ -65,12 +65,16 @@ class AggregationWorker:
                 await self.consumer.ack(msg_id)
                 logger.debug(
                     'Recovered pending metric',
-                    extra={'msg_id': msg_id, 'name': point.name},
+                    extra={'msg_id': msg_id, 'metric_name': point.name},
                 )
             except Exception as e:
                 logger.error(
                     'Failed to save recovered metric to DB',
-                    extra={'msg_id': msg_id, 'name': point.name, 'error': str(e)},
+                    extra={
+                        'msg_id': msg_id,
+                        'metric_name': point.name,
+                        'error': str(e),
+                    },
                 )
 
     def stop(self) -> None:

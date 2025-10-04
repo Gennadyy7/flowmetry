@@ -17,7 +17,7 @@ class TimescaleDB:
     async def insert_metric(point: MetricPoint) -> None:
         logger.info(
             'A metric has been inserted into the database',
-            extra={'metric_point': point},
+            extra={'metric_name': point.name},
         )
 
     @staticmethod

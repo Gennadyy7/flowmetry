@@ -39,6 +39,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.aggregator
+    depends_on:
+      redis:
+        condition: service_healthy
     env_file:
       - ./aggregator/.env
     restart: unless-stopped
