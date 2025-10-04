@@ -1,0 +1,10 @@
+{
+  "datefmt": null,
+  "standard_fields": [
+    "name", "msg", "args", "levelname", "levelno", "pathname",
+    "filename", "module", "lineno", "funcName", "created",
+    "msecs", "relativeCreated", "thread", "threadName",
+    "process", "processName", "exc_info", "exc_text",
+    "stack_info", "message", "taskName"
+  ]
+}

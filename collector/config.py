@@ -19,5 +19,10 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_STREAM_NAME: str
 
+    SERVICE_NAME: str
+    SERVICE_VERSION: str
+    LOG_LEVEL: str
+    LOG_FORMAT: str
+
 
 settings = Settings()  # type: ignore[call-arg]

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -6,8 +7,18 @@ from fastapi import FastAPI
 import uvicorn
 
 from collector.config import settings
+from collector.logging import setup_logging
 from collector.redis_stream_client import redis_stream_client
 from collector.router import router as metrics_router
+
+setup_logging(
+    service_name=settings.SERVICE_NAME,
+    level=settings.LOG_LEVEL,
+    log_format=settings.LOG_FORMAT,
+    version=settings.SERVICE_VERSION,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
