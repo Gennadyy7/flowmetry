@@ -42,6 +42,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      timescaledb:
+        condition: service_healthy
     env_file:
       - ./aggregator/.env
     restart: unless-stopped
@@ -64,5 +66,20 @@ services:
       retries: 5
       start_period: 10s
 
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    env_file:
+      - ./aggregator/.env
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
 volumes:
   redis_data:
+  timescaledb_data:
