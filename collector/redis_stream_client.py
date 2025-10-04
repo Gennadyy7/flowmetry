@@ -1,7 +1,7 @@
 import asyncio
-import logging
 from contextvars import ContextVar
 import json
+import logging
 from typing import Any
 import uuid
 
@@ -43,17 +43,17 @@ class RedisStreamClient:
 
     async def start(self) -> None:
         if self._redis is not None:
-            logger.debug("Redis client already initialized")
+            logger.debug('Redis client already initialized')
             return
 
         logger.info(
-            "Initializing Redis stream client",
+            'Initializing Redis stream client',
             extra={
-                "stream_name": self.stream_name,
-                "host": self.host,
-                "port": self.port,
-                "db": self.db,
-            }
+                'stream_name': self.stream_name,
+                'host': self.host,
+                'port': self.port,
+                'db': self.db,
+            },
         )
         try:
             self._redis = Redis(
@@ -67,16 +67,16 @@ class RedisStreamClient:
             await self._redis.ping()
             self._running = True
         except Exception:
-            logger.exception("Failed to start Redis stream client")
+            logger.exception('Failed to start Redis stream client')
             raise
 
     async def stop(self) -> None:
         if self._redis:
-            logger.info("Stopping Redis stream client")
+            logger.info('Stopping Redis stream client')
             await self._redis.aclose()
             self._redis = None
         self._running = False
-        logger.info("Redis stream client stopped")
+        logger.info('Redis stream client stopped')
 
     async def _send_to_redis(self, data: bytes) -> None:
         if not self._redis:
@@ -107,30 +107,30 @@ class RedisStreamClient:
                     self._buffer.pop(0)
                 await self._send_to_redis(data)
                 logger.debug(
-                    "Message sent to Redis stream",
-                    extra={"trace_id": trace_id, "stream": self.stream_name}
+                    'Message sent to Redis stream',
+                    extra={'trace_id': trace_id, 'stream': self.stream_name},
                 )
         except (ConnectionError, TimeoutError) as e:
             logger.warning(
-                "Redis connection error – buffering message",
+                'Redis connection error – buffering message',
                 extra={
-                    "trace_id": trace_id,
-                    "error": str(e),
-                    "buffer_len": len(self._buffer),
-                    "buffer_size_limit": self.buffer_size,
-                }
+                    'trace_id': trace_id,
+                    'error': str(e),
+                    'buffer_len': len(self._buffer),
+                    'buffer_size_limit': self.buffer_size,
+                },
             )
             async with self._buffer_lock:
                 if len(self._buffer) < self.buffer_size:
                     self._buffer.append(data)
                     logger.debug(
-                        "Message added to buffer",
-                        extra={"trace_id": trace_id, "buffer_len": len(self._buffer)}
+                        'Message added to buffer',
+                        extra={'trace_id': trace_id, 'buffer_len': len(self._buffer)},
                     )
                 else:
                     logger.warning(
-                        "Buffer overflow – dropping message",
-                        extra={"trace_id": trace_id}
+                        'Buffer overflow – dropping message',
+                        extra={'trace_id': trace_id},
                     )
 
 
