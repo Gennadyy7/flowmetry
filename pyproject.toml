@@ -29,6 +29,7 @@ opentelemetry-proto = "^1.37.0"
 
 [tool.poetry.group.aggregator.dependencies]
 redis = "^6.4.0"
+asyncpg = "^0.30.0"
 
 [tool.poetry.group.api.dependencies]
 fastapi = "^0.117.1"

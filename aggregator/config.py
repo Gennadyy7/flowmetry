@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     REDIS_CONSUMER_NAME: str = Field(
         default_factory=lambda: f'agg-{uuid.uuid4().hex[:8]}'
     )
+    REDIS_BLOCK_MS: int
+    REDIS_BATCH_SIZE: int
+    REDIS_PENDING_IDLE_MS: int
 
 
 settings = Settings()  # type: ignore[call-arg]
