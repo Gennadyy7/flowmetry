@@ -24,5 +24,10 @@ class Settings(BaseSettings):
     REDIS_BATCH_SIZE: int
     REDIS_PENDING_IDLE_MS: int
 
+    SERVICE_NAME: str
+    SERVICE_VERSION: str
+    LOG_LEVEL: str
+    LOG_FORMAT: str
+
 
 settings = Settings()  # type: ignore[call-arg]

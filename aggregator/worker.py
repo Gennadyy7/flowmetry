@@ -1,20 +1,17 @@
 import asyncio
 import logging
 
-from redis.asyncio import Redis
-
 from aggregator.config import settings
-from aggregator.consumer import MetricsConsumer
 from aggregator.db import TimescaleDB
+from aggregator.redis_stream_client import RedisStreamClient
 
 logger = logging.getLogger(__name__)
 
 
 class AggregationWorker:
-    def __init__(self, redis: Redis, db: TimescaleDB) -> None:
-        self.redis = redis
+    def __init__(self, consumer: RedisStreamClient, db: TimescaleDB) -> None:
+        self.consumer = consumer
         self.db = db
-        self.consumer = MetricsConsumer(redis)
         self._running = True
 
     async def start(self) -> None:

@@ -1,30 +1,35 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import logging
 import signal
 
-from redis.asyncio import Redis
-
 from aggregator.config import settings
+from aggregator.logging import setup_logging
+from aggregator.redis_stream_client import redis_stream_client
+
+setup_logging(
+    service_name=settings.SERVICE_NAME,
+    level=settings.LOG_LEVEL,
+    log_format=settings.LOG_FORMAT,
+    version=settings.SERVICE_VERSION,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan() -> AsyncGenerator[None, None]:
-    redis_client = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        db=settings.REDIS_DB,
-        decode_responses=True,
-    )
-    # worker_task = asyncio.create_task(background_worker(redis_client))
+    await redis_stream_client.start()
     try:
         yield
     finally:
+        logger.info('Shutting down...')
         await asyncio.gather(
-            # worker_task.cancel(),
-            redis_client.aclose(),
+            redis_stream_client.stop(),
             return_exceptions=True,
         )
+        logger.info('Shutdown complete')
 
 
 async def main() -> None:
