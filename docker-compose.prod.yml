@@ -48,7 +48,7 @@ services:
       - ./aggregator/.env
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "python", "-c", "print('ok')" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 5

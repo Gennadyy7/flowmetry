@@ -37,5 +37,8 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
 
+    HEALTH_SERVER_HOST: str = '0.0.0.0'
+    HEALTH_SERVER_PORT: int = 8080
+
 
 settings = Settings()  # type: ignore[call-arg]

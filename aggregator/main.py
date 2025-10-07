@@ -6,6 +6,7 @@ import signal
 
 from aggregator.config import settings
 from aggregator.db import timescale_db
+from aggregator.health_server import HealthServer
 from aggregator.logging import setup_logging
 from aggregator.redis_stream_client import redis_stream_client
 from aggregator.worker import AggregationWorker
@@ -26,11 +27,18 @@ async def lifespan() -> AsyncGenerator[None, None]:
     await timescale_db.connect()
     aggregation_worker = AggregationWorker(redis_stream_client, timescale_db)
     worker_task = asyncio.create_task(aggregation_worker.start())
+
+    health_server = HealthServer(
+        host=settings.HEALTH_SERVER_HOST, port=settings.HEALTH_SERVER_PORT
+    )
+    await health_server.start()
     logger.info('Aggregation worker task started')
     try:
         yield
     finally:
         logger.info('Shutting down...')
+        await health_server.stop()
+
         aggregation_worker.stop()
         try:
             await asyncio.wait_for(
