@@ -13,6 +13,12 @@ services:
     env_file:
       - ./api/.env
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   collector:
     build:
@@ -29,7 +35,7 @@ services:
       - ./collector/.env
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "python", "-c", "print('ok')" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 5s
       timeout: 3s
       retries: 5

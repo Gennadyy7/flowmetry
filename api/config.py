@@ -12,5 +12,10 @@ class Settings(BaseSettings):
     API_PORT: int
     API_RELOAD: bool
 
+    SERVICE_NAME: str
+    SERVICE_VERSION: str
+    LOG_LEVEL: str
+    LOG_FORMAT: str
+
 
 settings = Settings()  # type: ignore[call-arg]
