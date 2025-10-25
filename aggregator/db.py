@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import cast
 
@@ -110,7 +111,7 @@ class TimescaleDB:
             point.description,
             point.unit,
             point.type.value,
-            point.attributes,
+            json.dumps(point.attributes),
             explicit_bounds,
         )
         if row is not None:
@@ -123,7 +124,7 @@ class TimescaleDB:
               AND COALESCE(explicit_bounds, '{}'::DOUBLE PRECISION[]) = COALESCE($3, '{}'::DOUBLE PRECISION[])
             """,
             point.name,
-            point.attributes,
+            json.dumps(point.attributes),
             explicit_bounds,
         )
         if existing is None:
