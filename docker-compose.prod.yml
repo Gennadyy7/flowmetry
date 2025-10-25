@@ -77,6 +77,7 @@ services:
     env_file:
       - ./aggregator/.env
     volumes:
+      - ./timescaledb/init:/docker-entrypoint-initdb.d
       - timescaledb_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:

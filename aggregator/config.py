@@ -1,7 +1,17 @@
+from typing import Literal
 import uuid
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+SSLMode = Literal[
+    'disable',
+    'allow',
+    'prefer',
+    'require',
+    'verify-ca',
+    'verify-full',
+]
 
 
 class Settings(BaseSettings):
@@ -39,6 +49,11 @@ class Settings(BaseSettings):
 
     HEALTH_SERVER_HOST: str = '0.0.0.0'
     HEALTH_SERVER_PORT: int = 8080
+
+    DB_MIN_POOL_SIZE: int = 1
+    DB_MAX_POOL_SIZE: int = 10
+    DB_COMMAND_TIMEOUT: float = 60.0
+    DB_SSL_MODE: SSLMode | None = None
 
 
 settings = Settings()  # type: ignore[call-arg]
