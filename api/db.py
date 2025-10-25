@@ -68,7 +68,7 @@ class TimescaleDB:
                     v.time
                 FROM metrics_info i
                 JOIN metrics_values v ON i.id = v.metric_id
-                WHERE v.time >= NOW() - INTERVAL '%s minutes'
+                WHERE v.time >= NOW() - ($1 * INTERVAL '1 minute')
                 ORDER BY v.time DESC
                 """,
                 lookback_minutes,
@@ -88,7 +88,7 @@ class TimescaleDB:
                     h.time
                 FROM metrics_info i
                 JOIN metrics_histograms h ON i.id = h.metric_id
-                WHERE h.time >= NOW() - INTERVAL '%s minutes'
+                WHERE h.time >= NOW() - ($1 * INTERVAL '1 minute')
                 ORDER BY h.time DESC
                 """,
                 lookback_minutes,
