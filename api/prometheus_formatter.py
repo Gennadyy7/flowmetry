@@ -58,3 +58,6 @@ class PrometheusFormatter:
             elif metric.type == MetricType.HISTOGRAM:
                 lines.extend(self._format_histogram_metric(metric))
         return '\n'.join(lines) + '\n'
+
+
+formatter = PrometheusFormatter()
