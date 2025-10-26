@@ -1,5 +1,7 @@
+from datetime import datetime
 import json
 import logging
+from typing import Any
 
 import asyncpg
 
@@ -133,6 +135,77 @@ class TimescaleDB:
                 )
             )
         return result
+
+    async def fetch_metric_timeseries(
+        self,
+        metric_name: str,
+        labels: dict[str, str],
+        start_ts: float,
+        end_ts: float,
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        if self._pool is None:
+            raise RuntimeError('TimescaleDB not connected')
+
+        labels_json = json.dumps(labels) if labels else '{}'
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    i.name,
+                    i.attributes,
+                    v.value,
+                    v.time
+                FROM metrics_info i
+                JOIN metrics_values v ON i.id = v.metric_id
+                WHERE i.name = $1
+                  AND i.attributes @> $2::jsonb
+                  AND v.time >= to_timestamp($3)
+                  AND v.time <= to_timestamp($4)
+                ORDER BY v.time ASC
+                """,
+                metric_name,
+                labels_json,
+                start_ts,
+                end_ts,
+            )
+
+        result = []
+        for row in rows:
+            attrs = row['attributes']
+            if isinstance(attrs, str):
+                attrs = json.loads(attrs)
+            result.append((row['name'], attrs, float(row['value']), row['time']))
+        return result
+
+    async def fetch_all_label_names(self) -> list[str]:
+        if self._pool is None:
+            raise RuntimeError('TimescaleDB not connected')
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT DISTINCT jsonb_object_keys(attributes) AS key
+                FROM metrics_info;
+            """)
+            labels = {row['key'] for row in rows}
+            labels.add('__name__')
+            return sorted(labels)
+
+    async def fetch_label_values(self, label_name: str) -> list[str]:
+        if self._pool is None:
+            raise RuntimeError('TimescaleDB not connected')
+        async with self._pool.acquire() as conn:
+            if label_name == '__name__':
+                rows = await conn.fetch('SELECT DISTINCT name FROM metrics_info;')
+                return sorted({row['name'] for row in rows})
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT value
+                FROM metrics_info, jsonb_each_text(attributes)
+                WHERE key = $1;
+            """,
+                label_name,
+            )
+            return sorted({row['value'] for row in rows})
 
 
 timescale_db = TimescaleDB()
