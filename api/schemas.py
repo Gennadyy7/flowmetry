@@ -23,3 +23,28 @@ class DBMetric(BaseModel):
     count: int | None = None
     bucket_counts: list[int] | None = None
     explicit_bounds: list[float] | None = None
+
+
+class MetricLabels(BaseModel):
+    __name__: str
+    model_config = {'extra': 'allow'}
+
+
+class Sample(BaseModel):
+    timestamp: float
+    value: str
+
+
+class ResultItem(BaseModel):
+    metric: MetricLabels
+    values: list[Sample]
+
+
+class QueryRangeData(BaseModel):
+    resultType: str = 'matrix'
+    result: list[ResultItem]
+
+
+class QueryRangeResponse(BaseModel):
+    status: str = 'success'
+    data: QueryRangeData
