@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 from typing import Any, cast
@@ -194,7 +194,7 @@ class TimescaleDB:
         step_seconds: int,
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
         labels_json = json.dumps(labels) if labels else '{}'
-        step_interval = f'{step_seconds}s'
+        step_interval = timedelta(seconds=step_seconds)
 
         async with self._get_connection() as conn:
             rows = await conn.fetch(
@@ -241,7 +241,7 @@ class TimescaleDB:
         step_seconds: int,
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
         labels_json = json.dumps(labels) if labels else '{}'
-        step_interval = f'{step_seconds}s'
+        step_interval = timedelta(seconds=step_seconds)
 
         async with self._get_connection() as conn:
             rows = await conn.fetch(
