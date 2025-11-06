@@ -1,7 +1,9 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 import asyncpg
 
@@ -53,11 +55,28 @@ class TimescaleDB:
             self._pool = None
             logger.info('TimescaleDB connection pool closed')
 
-    async def fetch_all_metrics(self, lookback_minutes: int = 5) -> list[DBMetric]:
+    @asynccontextmanager
+    async def _get_connection(self) -> AsyncIterator[asyncpg.pool.PoolConnectionProxy]:
         if self._pool is None:
             raise RuntimeError('TimescaleDB not connected')
-
         async with self._pool.acquire() as conn:
+            yield conn
+
+    @staticmethod
+    def _parse_attributes(raw_attrs: Any) -> dict[str, Any]:
+        if isinstance(raw_attrs, str):
+            parsed = json.loads(raw_attrs)
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    f'Expected JSON object, got {type(parsed).__name__}: {parsed}'
+                )
+            return cast(dict[str, Any], parsed)
+        if hasattr(raw_attrs, 'keys'):
+            return {str(k): v for k, v in raw_attrs.items()}
+        raise ValueError(f'Unsupported attributes type: {type(raw_attrs)}')
+
+    async def fetch_all_metrics(self, lookback_minutes: int = 5) -> list[DBMetric]:
+        async with self._get_connection() as conn:
             values = await conn.fetch(
                 """
                 SELECT
@@ -98,60 +117,46 @@ class TimescaleDB:
 
         result: list[DBMetric] = []
         for row in values:
-            attrs = row['attributes']
-            if isinstance(attrs, str):
-                attrs = json.loads(attrs)
             result.append(
                 DBMetric(
                     name=row['name'],
                     description=row['description'] or '',
                     unit=row['unit'] or '',
                     type=MetricType(row['type']),
-                    attributes=attrs,
+                    attributes=self._parse_attributes(row['attributes']),
                     value=float(row['value']),
                     time=row['time'],
                 )
             )
         for row in histograms:
-            attrs = row['attributes']
-            if isinstance(attrs, str):
-                attrs = json.loads(attrs)
             result.append(
                 DBMetric(
                     name=row['name'],
                     description=row['description'] or '',
                     unit=row['unit'] or '',
                     type=MetricType.HISTOGRAM,
-                    attributes=attrs,
+                    attributes=self._parse_attributes(row['attributes']),
                     sum=float(row['sum']),
                     count=int(row['count']),
-                    bucket_counts=list(row['bucket_counts'])
-                    if row['bucket_counts']
-                    else [],
-                    explicit_bounds=list(row['explicit_bounds'])
-                    if row['explicit_bounds']
-                    else [],
+                    bucket_counts=list(row['bucket_counts'] or []),
+                    explicit_bounds=list(row['explicit_bounds'] or []),
                     time=row['time'],
                 )
             )
         return result
 
-    async def fetch_metric_timeseries(
+    async def fetch_metric_instant(
         self,
         metric_name: str,
         labels: dict[str, str],
-        start_ts: float,
-        end_ts: float,
+        timestamp: float,
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
-        if self._pool is None:
-            raise RuntimeError('TimescaleDB not connected')
-
         labels_json = json.dumps(labels) if labels else '{}'
 
-        async with self._pool.acquire() as conn:
+        async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT
+                SELECT DISTINCT ON (i.id)
                     i.name,
                     i.attributes,
                     v.value,
@@ -160,49 +165,135 @@ class TimescaleDB:
                 JOIN metrics_values v ON i.id = v.metric_id
                 WHERE i.name = $1
                   AND i.attributes @> $2::jsonb
+                  AND i.type IN ('counter', 'gauge')
+                  AND v.time <= to_timestamp($3)
+                ORDER BY i.id, v.time DESC
+                """,
+                metric_name,
+                labels_json,
+                timestamp,
+            )
+
+        return [
+            (
+                row['name'],
+                self._parse_attributes(row['attributes']),
+                float(row['value']),
+                row['time'],
+            )
+            for row in rows
+            if row['value'] is not None
+        ]
+
+    async def fetch_timeseries_gauge(
+        self,
+        metric_name: str,
+        labels: dict[str, str],
+        start_ts: float,
+        end_ts: float,
+        step_seconds: int,
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        labels_json = json.dumps(labels) if labels else '{}'
+        step_interval = f'{step_seconds}s'
+
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    i.name,
+                    i.attributes,
+                    time_bucket($4::interval, v.time) AS bucket,
+                    AVG(v.value) AS value
+                FROM metrics_info i
+                JOIN metrics_values v ON i.id = v.metric_id
+                WHERE i.name = $1
+                  AND i.attributes @> $2::jsonb
+                  AND i.type = 'gauge'
                   AND v.time >= to_timestamp($3)
-                  AND v.time <= to_timestamp($4)
-                ORDER BY v.time ASC
+                  AND v.time <= to_timestamp($5)
+                GROUP BY i.id, i.name, i.attributes, bucket
+                ORDER BY bucket ASC
                 """,
                 metric_name,
                 labels_json,
                 start_ts,
+                step_interval,
                 end_ts,
             )
 
-        result = []
-        for row in rows:
-            attrs = row['attributes']
-            if isinstance(attrs, str):
-                attrs = json.loads(attrs)
-            result.append((row['name'], attrs, float(row['value']), row['time']))
-        return result
+        return [
+            (
+                row['name'],
+                self._parse_attributes(row['attributes']),
+                float(row['value']),
+                row['bucket'],
+            )
+            for row in rows
+            if row['value'] is not None
+        ]
 
-    async def fetch_all_label_names(self) -> list[str]:
-        if self._pool is None:
-            raise RuntimeError('TimescaleDB not connected')
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT DISTINCT jsonb_object_keys(attributes) AS key
-                FROM metrics_info;
-            """)
-            labels = {row['key'] for row in rows}
-            labels.add('__name__')
-            return sorted(labels)
+    async def fetch_timeseries_rate(
+        self,
+        metric_name: str,
+        labels: dict[str, str],
+        start_ts: float,
+        end_ts: float,
+        step_seconds: int,
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        labels_json = json.dumps(labels) if labels else '{}'
+        step_interval = f'{step_seconds}s'
 
-    async def fetch_label_values(self, label_name: str) -> list[str]:
-        if self._pool is None:
-            raise RuntimeError('TimescaleDB not connected')
-        async with self._pool.acquire() as conn:
-            if label_name == '__name__':
-                rows = await conn.fetch('SELECT DISTINCT name FROM metrics_info;')
-                return sorted({row['name'] for row in rows})
+        async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT DISTINCT value
-                FROM metrics_info, jsonb_each_text(attributes)
-                WHERE key = $1;
-            """,
+                SELECT
+                    i.name,
+                    i.attributes,
+                    time_bucket($4::interval, v.time) AS bucket,
+                    (last(v.value, v.time) - first(v.value, v.time)) / $5 AS value
+                FROM metrics_info i
+                JOIN metrics_values v ON i.id = v.metric_id
+                WHERE i.name = $1
+                  AND i.attributes @> $2::jsonb
+                  AND i.type = 'counter'
+                  AND v.time >= to_timestamp($3)
+                  AND v.time <= to_timestamp($6)
+                GROUP BY i.id, i.name, i.attributes, bucket
+                ORDER BY bucket ASC
+                """,
+                metric_name,
+                labels_json,
+                start_ts,
+                step_interval,
+                step_seconds,
+                end_ts,
+            )
+
+        return [
+            (
+                row['name'],
+                self._parse_attributes(row['attributes']),
+                float(row['value']),
+                row['bucket'],
+            )
+            for row in rows
+            if row['value'] is not None and row['value'] >= 0
+        ]
+
+    async def fetch_all_label_names(self) -> list[str]:
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                'SELECT DISTINCT jsonb_object_keys(attributes) AS key FROM metrics_info'
+            )
+            return sorted({'__name__'} | {row['key'] for row in rows})
+
+    async def fetch_label_values(self, label_name: str) -> list[str]:
+        async with self._get_connection() as conn:
+            if label_name == '__name__':
+                rows = await conn.fetch('SELECT DISTINCT name FROM metrics_info')
+                return sorted({row['name'] for row in rows})
+            rows = await conn.fetch(
+                'SELECT DISTINCT value FROM metrics_info, jsonb_each_text(attributes) WHERE key = $1',
                 label_name,
             )
             return sorted({row['value'] for row in rows})

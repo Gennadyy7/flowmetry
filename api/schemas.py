@@ -1,8 +1,18 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+T = TypeVar('T')
+Sample = tuple[float, str]
+
+
+class BasePrometheusResponse(BaseModel, Generic[T]):
+    status: str = 'success'
+    data: T
+
+    model_config = ConfigDict(extra='forbid')
 
 
 class MetricType(str, Enum):
@@ -27,12 +37,7 @@ class DBMetric(BaseModel):
 
 class MetricLabels(BaseModel):
     __name__: str
-    model_config = {'extra': 'allow'}
-
-
-class Sample(BaseModel):
-    timestamp: float
-    value: str
+    model_config = ConfigDict(extra='allow')
 
 
 class ResultItem(BaseModel):
@@ -45,6 +50,43 @@ class QueryRangeData(BaseModel):
     result: list[ResultItem]
 
 
-class QueryRangeResponse(BaseModel):
-    status: str = 'success'
-    data: QueryRangeData
+class QueryRangeResponse(BasePrometheusResponse[QueryRangeData]):
+    pass
+
+
+class InstantResultItem(BaseModel):
+    metric: MetricLabels
+    value: Sample
+
+
+class InstantQueryData(BaseModel):
+    resultType: str = 'vector'
+    result: list[InstantResultItem]
+
+
+class InstantQueryResponse(BasePrometheusResponse[InstantQueryData]):
+    pass
+
+
+class LabelNamesResponse(BasePrometheusResponse[list[str]]):
+    pass
+
+
+class LabelValuesResponse(BasePrometheusResponse[list[str]]):
+    pass
+
+
+class BuildInfoData(BaseModel):
+    version: str = '0.1.0'
+    revision: str = 'custom'
+    branch: str = 'master'
+    buildUser: str = 'flowmetry'
+    buildDate: str = Field(
+        default_factory=lambda: datetime.now().strftime('%Y%m%d-%H:%M:%SZ')
+    )
+
+    model_config = ConfigDict(extra='forbid')
+
+
+class BuildInfoResponse(BasePrometheusResponse[BuildInfoData]):
+    pass

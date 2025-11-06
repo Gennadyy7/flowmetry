@@ -1,60 +1,73 @@
-from collections import defaultdict
-from typing import Any
+from datetime import datetime
+import logging
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Form, HTTPException, Path
 
-from api.db import timescale_db
-from api.promql_parser import parser
 from api.schemas import (
-    MetricLabels,
-    QueryRangeData,
+    BuildInfoResponse,
+    InstantQueryResponse,
+    LabelNamesResponse,
+    LabelValuesResponse,
     QueryRangeResponse,
-    ResultItem,
-    Sample,
 )
+from api.services.prometheus import PrometheusService
 
-router = APIRouter()
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix='/api/v1')
 
 
-@router.get('/api/v1/query_range', response_model=QueryRangeResponse)
-async def query_range(
-    query: str = Query(..., example='http_requests_total{job="api"}'),
-    start: float = Query(...),
-    end: float = Query(...),
-    _step: int = Query(15, ge=1),
-) -> QueryRangeResponse:
+@router.post('/query', response_model=InstantQueryResponse)
+async def instant_query(
+    query: Annotated[str, Form(..., example='up')],
+    time: Annotated[float, Form(default_factory=lambda: datetime.now().timestamp())],
+) -> InstantQueryResponse:
     try:
-        metric_name, labels = parser.parse(query)
+        return await PrometheusService.handle_instant_query(query, time)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f'Invalid query: {e}') from e
-    try:
-        series = await timescale_db.fetch_metric_timeseries(
-            metric_name=metric_name,
-            labels=labels,
-            start_ts=start,
-            end_ts=end,
-        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Database error: {e}') from e
-    if not series:
-        return QueryRangeResponse(data=QueryRangeData(resultType='matrix', result=[]))
-    grouped: dict[tuple[tuple[str, Any], ...], list[tuple[Any, float]]] = defaultdict(
-        list
-    )
-    for _name, attrs, value, ts in series:
-        label_key = tuple(sorted(attrs.items()))
-        grouped[label_key].append((ts, value))
-    result_items: list[ResultItem] = []
-    for label_key, points in grouped.items():
-        labels_dict = dict(label_key)
-        labels_dict['__name__'] = metric_name
-        samples = [
-            Sample(timestamp=ts.replace(tzinfo=None).timestamp(), value=str(value))
-            for ts, value in points
-        ]
-        result_items.append(
-            ResultItem(metric=MetricLabels(**labels_dict), values=samples)
-        )
-    return QueryRangeResponse(
-        data=QueryRangeData(resultType='matrix', result=result_items)
-    )
+        logger.exception('Database error in /query')
+        raise HTTPException(status_code=500, detail='Database error') from e
+
+
+@router.post('/query_range', response_model=QueryRangeResponse)
+async def query_range(
+    query: Annotated[str, Form(..., example='http_requests_total{job="api"}')],
+    start: Annotated[float, Form(...)],
+    end: Annotated[float, Form(...)],
+    step: Annotated[int, Form(..., ge=1, description='Step in seconds')],
+) -> QueryRangeResponse:
+    try:
+        return await PrometheusService.handle_range_query(query, start, end, step)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f'Invalid query: {e}') from e
+    except Exception as e:
+        logger.exception('Database error in /query_range')
+        raise HTTPException(status_code=500, detail='Database error') from e
+
+
+@router.get('/labels', response_model=LabelNamesResponse)
+async def get_label_names() -> LabelNamesResponse:
+    try:
+        return await PrometheusService.get_label_names()
+    except Exception as e:
+        logger.exception('Database error in /labels')
+        raise HTTPException(status_code=500, detail='Database error') from e
+
+
+@router.get('/label/{label_name}/values', response_model=LabelValuesResponse)
+async def get_label_values(
+    label_name: Annotated[str, Path(..., example='job')],
+) -> LabelValuesResponse:
+    try:
+        return await PrometheusService.get_label_values(label_name)
+    except Exception as e:
+        logger.exception('Database error in /label/.../values')
+        raise HTTPException(status_code=500, detail='Database error') from e
+
+
+@router.get('/status/buildinfo', response_model=BuildInfoResponse)
+async def get_build_info() -> BuildInfoResponse:
+    logger.debug('Build info requested')
+    return PrometheusService.get_build_info()
