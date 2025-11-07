@@ -5,7 +5,30 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar('T')
+
 Sample = tuple[float, str]
+
+
+class MetricLabels(BaseModel):
+    __name__: str
+    model_config = ConfigDict(extra='allow')
+
+    def to_dict(self) -> dict[str, str]:
+        return {k: str(v) for k, v in self.__dict__.items() if not k.startswith('_')}
+
+
+class InstantResultItem(BaseModel):
+    metric: MetricLabels
+    value: Sample
+
+
+class ResultItem(BaseModel):
+    metric: MetricLabels
+    values: list[Sample]
+
+
+Vector = list[InstantResultItem]
+Matrix = list[ResultItem]
 
 
 class BasePrometheusResponse(BaseModel, Generic[T]):
@@ -35,37 +58,14 @@ class DBMetric(BaseModel):
     explicit_bounds: list[float] | None = None
 
 
-class MetricLabels(BaseModel):
-    __name__: str
-    model_config = ConfigDict(extra='allow')
-
-
-class ResultItem(BaseModel):
-    metric: MetricLabels
-    values: list[Sample]
+class InstantQueryData(BaseModel):
+    resultType: str = Field('vector', pattern='^vector$')
+    result: Vector
 
 
 class QueryRangeData(BaseModel):
-    resultType: str = 'matrix'
-    result: list[ResultItem]
-
-
-class QueryRangeResponse(BasePrometheusResponse[QueryRangeData]):
-    pass
-
-
-class InstantResultItem(BaseModel):
-    metric: MetricLabels
-    value: Sample
-
-
-class InstantQueryData(BaseModel):
-    resultType: str = 'vector'
-    result: list[InstantResultItem]
-
-
-class InstantQueryResponse(BasePrometheusResponse[InstantQueryData]):
-    pass
+    resultType: str = Field('matrix', pattern='^matrix$')
+    result: Matrix
 
 
 class LabelNamesResponse(BasePrometheusResponse[list[str]]):
@@ -76,6 +76,26 @@ class LabelValuesResponse(BasePrometheusResponse[list[str]]):
     pass
 
 
+class InstantQueryResponse(BasePrometheusResponse[InstantQueryData]):
+    pass
+
+
+class QueryRangeResponse(BasePrometheusResponse[QueryRangeData]):
+    pass
+
+
+class SeriesItem(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    def to_dict(self) -> dict[str, str]:
+        return {k: str(v) for k, v in self.__dict__.items() if not k.startswith('_')}
+
+
+class SeriesResponse(BaseModel):
+    status: str = 'success'
+    data: list[dict[str, str]]
+
+
 class BuildInfoData(BaseModel):
     version: str = '0.1.0'
     revision: str = 'custom'
@@ -84,6 +104,8 @@ class BuildInfoData(BaseModel):
     buildDate: str = Field(
         default_factory=lambda: datetime.now().strftime('%Y%m%d-%H:%M:%SZ')
     )
+    goVersion: str = 'go1.21'
+    platform: str = 'linux/amd64'
 
     model_config = ConfigDict(extra='forbid')
 

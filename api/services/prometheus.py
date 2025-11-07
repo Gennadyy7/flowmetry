@@ -1,6 +1,8 @@
 from collections import defaultdict
+from collections.abc import Sequence
+from datetime import datetime
 import logging
-from typing import Any, cast
+from typing import Any
 
 from api.db import timescale_db
 from api.promql_parser import ParsedQuery, parser
@@ -16,6 +18,7 @@ from api.schemas import (
     QueryRangeData,
     QueryRangeResponse,
     ResultItem,
+    SeriesResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,38 +35,69 @@ class PrometheusService:
 
         try:
             parsed: ParsedQuery = parser.parse(query)
-        except ValueError as e:
+        except Exception as e:
             logger.warning(
                 'Invalid PromQL query', extra={'query': query, 'error': str(e)}
             )
             raise
 
-        if parsed.func == 'scalar':
+        if parsed.scalar_value is not None:
             return InstantQueryResponse(
                 data=InstantQueryData(
                     resultType='vector',
                     result=[
                         InstantResultItem(
                             metric=MetricLabels(__name__=parsed.raw),
-                            value=(timestamp, cast(str, parsed.scalar_value)),
+                            value=(timestamp, parsed.scalar_value),
                         )
                     ],
                 )
             )
 
+        if parsed.function in ('rate', 'increase'):
+            lookback = parsed.get_lookback_seconds()
+            start_ts = timestamp - lookback
+
+            series = await timescale_db.fetch_timeseries_for_range(
+                metric_name=parsed.metric_name or '',
+                labels=parsed.labels,
+                start_ts=start_ts,
+                end_ts=timestamp,
+                step_seconds=lookback,
+                function=parsed.function,
+            )
+
+            result_items = []
+            for _name, attrs, value, _ts in series:
+                effective_name = parsed.get_effective_metric_name()
+                result_items.append(
+                    InstantResultItem(
+                        metric=MetricLabels(**{'__name__': effective_name, **attrs}),
+                        value=(timestamp, str(value)),
+                    )
+                )
+            return InstantQueryResponse(
+                data=InstantQueryData(
+                    resultType='vector',
+                    result=result_items,
+                )
+            )
+
         series = await timescale_db.fetch_metric_instant(
-            metric_name=parsed.metric_name,
+            metric_name=parsed.metric_name or '',
             labels=parsed.labels,
             timestamp=timestamp,
         )
 
-        result_items = [
-            InstantResultItem(
-                metric=MetricLabels(**{'__name__': name, **attrs}),
-                value=(ts.timestamp(), str(value)),
+        result_items = []
+        for _name, attrs, value, ts in series:
+            effective_name = parsed.get_effective_metric_name()
+            result_items.append(
+                InstantResultItem(
+                    metric=MetricLabels(**{'__name__': effective_name, **attrs}),
+                    value=(ts.timestamp(), str(value)),
+                )
             )
-            for name, attrs, value, ts in series
-        ]
 
         return InstantQueryResponse(
             data=InstantQueryData(
@@ -83,40 +117,53 @@ class PrometheusService:
 
         try:
             parsed: ParsedQuery = parser.parse(query)
-        except ValueError as e:
+        except Exception as e:
             logger.warning(
                 'Invalid PromQL query', extra={'query': query, 'error': str(e)}
             )
             raise
 
-        if parsed.func == 'rate':
-            series = await timescale_db.fetch_timeseries_rate(
-                metric_name=parsed.metric_name,
-                labels=parsed.labels,
-                start_ts=start,
-                end_ts=end,
-                step_seconds=step,
-            )
-        else:
-            series = await timescale_db.fetch_timeseries_gauge(
-                metric_name=parsed.metric_name,
-                labels=parsed.labels,
-                start_ts=start,
-                end_ts=end,
-                step_seconds=step,
+        logger.debug(
+            'Parsed query details',
+            extra={
+                'metric_name': parsed.metric_name,
+                'labels': parsed.labels,
+                'function': parsed.function,
+                'start': start,
+                'end': end,
+                'step': step,
+            },
+        )
+
+        series = await timescale_db.fetch_timeseries_for_range(
+            metric_name=parsed.metric_name or '',
+            labels=parsed.labels,
+            start_ts=start,
+            end_ts=end,
+            step_seconds=step,
+            function=parsed.function,
+        )
+
+        logger.debug(f'Fetched {len(series)} series points')
+
+        if parsed.aggregation:
+            series = PrometheusService._apply_aggregation(
+                series, parsed.aggregation, parsed.by_labels
             )
 
-        grouped: dict[tuple[tuple[str, Any], ...], list[tuple[float, str]]] = (
+        grouped: dict[tuple[tuple[str, str], ...], list[tuple[float, str]]] = (
             defaultdict(list)
         )
         for _name, attrs, value, ts in series:
-            key = tuple(sorted(attrs.items()))
+            str_attrs = {k: str(v) for k, v in attrs.items()}
+            key = tuple(sorted(str_attrs.items()))
             grouped[key].append((ts.timestamp(), str(value)))
 
         result_items = []
+        effective_name = parsed.get_effective_metric_name()
         for label_key, points in grouped.items():
             labels_dict = dict(label_key)
-            labels_dict['__name__'] = parsed.metric_name or 'scalar'
+            labels_dict['__name__'] = effective_name
             result_items.append(
                 ResultItem(
                     metric=MetricLabels(**labels_dict),
@@ -132,18 +179,84 @@ class PrometheusService:
         )
 
     @staticmethod
+    async def get_series(match: list[str]) -> SeriesResponse:
+        logger.debug('Fetching series', extra={'match': match})
+        try:
+            series_list = await timescale_db.fetch_series(matchers=match)
+            return SeriesResponse(data=series_list)
+        except Exception as e:
+            logger.exception(f'Error in get_series: {e}', extra={'match': match})
+            raise
+
+    @staticmethod
     async def get_label_names() -> LabelNamesResponse:
         logger.debug('Fetching all label names')
-        labels = await timescale_db.fetch_all_label_names()
-        return LabelNamesResponse(data=labels)
+        try:
+            labels = await timescale_db.fetch_all_label_names()
+            return LabelNamesResponse(data=labels)
+        except Exception as e:
+            logger.exception(f'Error in get_label_names: {e}')
+            raise
 
     @staticmethod
     async def get_label_values(label_name: str) -> LabelValuesResponse:
         logger.debug('Fetching label values', extra={'label_name': label_name})
-        values = await timescale_db.fetch_label_values(label_name)
-        return LabelValuesResponse(data=values)
+        try:
+            values = await timescale_db.fetch_label_values(label_name)
+            return LabelValuesResponse(data=values)
+        except Exception as e:
+            logger.exception(
+                f'Error in get_label_values: {e}', extra={'label_name': label_name}
+            )
+            raise
 
     @staticmethod
     def get_build_info() -> BuildInfoResponse:
         logger.debug('Returning build info')
         return BuildInfoResponse(data=BuildInfoData())
+
+    @staticmethod
+    def _apply_aggregation(
+        series: Sequence[tuple[str, dict[str, Any], float, datetime]],
+        op: str,
+        by_labels: list[str],
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        grouped: dict[tuple[str, ...], list[float]] = defaultdict(list)
+        meta: dict[tuple[str, ...], tuple[str, dict[str, Any], datetime]] = {}
+
+        for name, attrs, value, ts in series:
+            key_items = []
+            for lbl in by_labels:
+                if lbl == '__name__':
+                    key_items.append(name)
+                else:
+                    key_items.append(attrs.get(lbl, ''))
+            key = tuple(key_items)
+
+            grouped[key].append(value)
+            if key not in meta:
+                new_attrs = {}
+                for lbl in by_labels:
+                    if lbl != '__name__' and lbl in attrs:
+                        new_attrs[lbl] = attrs[lbl]
+                meta[key] = (name, new_attrs, ts)
+
+        result = []
+        for key, values in grouped.items():
+            if op == 'sum':
+                agg_value = sum(values)
+            elif op == 'avg':
+                agg_value = sum(values) / len(values) if values else 0.0
+            elif op == 'min':
+                agg_value = min(values) if values else 0.0
+            elif op == 'max':
+                agg_value = max(values) if values else 0.0
+            elif op == 'count':
+                agg_value = float(len(values))
+            else:
+                agg_value = 0.0
+
+            name, attrs, ts = meta[key]
+            result.append((f'{op}({name})', attrs, agg_value, ts))
+
+        return result

@@ -74,6 +74,8 @@ services:
 
   timescaledb:
     image: timescale/timescaledb:latest-pg17
+    ports:
+      - "5432:5432"
     env_file:
       - ./aggregator/.env
     volumes:
@@ -85,6 +87,26 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: flowmetry-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80/misc/ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
       start_period: 10s
 
   grafana:
@@ -110,3 +132,4 @@ volumes:
   redis_data:
   timescaledb_data:
   grafana_data:
+  pgadmin_data:
