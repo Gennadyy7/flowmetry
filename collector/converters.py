@@ -8,22 +8,23 @@ from collector.otlp.schemas import (
 )
 
 
-def _parse_any_value(kv: KeyValue) -> str | int | float | bool:
+def _parse_any_value(kv: KeyValue) -> str:
     v = kv.value
     if v.string_value is not None:
         return v.string_value
     if v.bool_value is not None:
-        return v.bool_value
+        return str(v.bool_value).lower()
     if v.int_value is not None:
-        return int(v.int_value)
+        return str(int(v.int_value))
     if v.double_value is not None:
-        return v.double_value
+        val = v.double_value
+        return str(int(val)) if val.is_integer() else str(val)
     return ''  # fallback
 
 
 def _attributes_to_dict(
     attributes: list[KeyValue],
-) -> dict[str, str | int | float | bool]:
+) -> dict[str, str]:
     return {kv.key: _parse_any_value(kv) for kv in attributes}
 
 

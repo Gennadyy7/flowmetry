@@ -15,7 +15,7 @@ class MetricPoint(BaseModel):
     unit: str
     type: MetricType
     timestamp_nano: int
-    attributes: dict[str, str | int | float | bool]
+    attributes: dict[str, str]
     value: int | float | None = None
     sum: float | None = None
     count: int | None = None

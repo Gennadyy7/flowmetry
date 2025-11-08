@@ -17,7 +17,7 @@ class MetricPoint(BaseModel):
 
     timestamp_nano: int
 
-    attributes: dict[str, str | int | float | bool]
+    attributes: dict[str, str]
 
     value: int | float | None = None
 
@@ -28,5 +28,5 @@ class MetricPoint(BaseModel):
 
 
 class MetricBatch(BaseModel):
-    resource_attributes: dict[str, str | int | float | bool]
+    resource_attributes: dict[str, str]
     points: list[MetricPoint]

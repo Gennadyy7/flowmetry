@@ -173,6 +173,27 @@ class TimescaleDB:
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
         labels_json = json.dumps(labels) if labels else '{}'
 
+        logger.debug(
+            'Executing SQL',
+            extra={
+                'sql': """
+                        SELECT DISTINCT ON (i.id)
+                            i.name,
+                            i.attributes,
+                            v.value,
+                            v.time
+                        FROM metrics_info i
+                        JOIN metrics_values v ON i.id = v.metric_id
+                        WHERE i.name = $1
+                          AND i.attributes @> $2::jsonb
+                          AND i.type IN ('counter', 'gauge')
+                          AND v.time <= to_timestamp($3)
+                        ORDER BY i.id, v.time DESC
+                        """,
+                'params': [metric_name, labels_json, timestamp],
+            },
+        )
+
         async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
