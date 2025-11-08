@@ -124,14 +124,14 @@ class PrometheusService:
             raise
 
         logger.debug(
-            'Parsed query details',
+            'PARSED QUERY DETAILS',
             extra={
+                'raw_query': query,
                 'metric_name': parsed.metric_name,
                 'labels': parsed.labels,
                 'function': parsed.function,
-                'start': start,
-                'end': end,
-                'step': step,
+                'range_seconds': parsed.range.seconds if parsed.range else None,
+                'step_input': step,
             },
         )
 

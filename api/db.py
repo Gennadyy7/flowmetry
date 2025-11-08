@@ -399,6 +399,14 @@ class TimescaleDB:
         end_dt = datetime.fromtimestamp(end_ts, tz=UTC)
         current = start_dt
 
+        logger.debug(
+            'RATE: raw_points fetched',
+            extra={
+                'count': len(raw_points),
+                'points': [(ts.timestamp(), val) for ts, val in raw_points[:5]],
+            },
+        )
+
         result = []
         while current <= end_dt:
             bucket_end = current + timedelta(seconds=step_seconds)
@@ -406,6 +414,16 @@ class TimescaleDB:
                 (ts, val) for ts, val in raw_points if current <= ts <= bucket_end
             ]
             if len(window_points) >= 2:
+                logger.debug(
+                    'RATE: computing for window',
+                    extra={
+                        'window_start': current.timestamp(),
+                        'window_end': bucket_end.timestamp(),
+                        'points_in_window': len(window_points),
+                        'values': [val for _, val in window_points],
+                    },
+                )
+
                 if function == 'rate':
                     value = self.calculate_rate_with_resets(window_points, step_seconds)
                 else:
@@ -416,7 +434,8 @@ class TimescaleDB:
                 current = bucket_end
                 continue
 
-            result.append((metric_name, labels, value, current))
+            full_attrs = await self._get_metric_attributes(metric_name, labels)
+            result.append((metric_name, full_attrs, value, current))
             current = bucket_end
 
         return result
@@ -545,6 +564,26 @@ class TimescaleDB:
                 label_name,
             )
             return sorted({row['value'] for row in rows})
+
+    async def _get_metric_attributes(
+        self,
+        metric_name: str,
+        filter_labels: dict[str, str],
+    ) -> dict[str, Any]:
+        labels_json = json.dumps(filter_labels) if filter_labels else '{}'
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT attributes FROM metrics_info
+                WHERE name = $1 AND attributes @> $2::jsonb
+                LIMIT 1
+                """,
+                metric_name,
+                labels_json,
+            )
+        if not row:
+            return filter_labels.copy()  # fallback
+        return self._parse_attributes(row['attributes'])
 
 
 timescale_db = TimescaleDB()
