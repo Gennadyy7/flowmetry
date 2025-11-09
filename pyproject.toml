@@ -38,6 +38,13 @@ uvicorn = "^0.37.0"
 asyncpg = "^0.30.0"
 python-multipart = "^0.0.20"
 
+[tool.poetry.group.registrar.dependencies]
+redis = "^6.4.0"
+django = "^5.2.8"
+django-environ = "^0.12.0"
+psycopg2-binary = "^2.9.11"
+gunicorn = "^23.0.0"
+
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.13.1"
 mypy = "^1.18.2"
