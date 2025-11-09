@@ -8,7 +8,7 @@ import uvicorn
 
 from api.config import settings
 from api.db import timescale_db
-from api.logging import setup_logging
+from api.log_config_loader import setup_logging
 from api.router import router as metrics_router
 
 setup_logging(

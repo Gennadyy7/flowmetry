@@ -7,7 +7,7 @@ from fastapi import FastAPI
 import uvicorn
 
 from collector.config import settings
-from collector.logging import setup_logging
+from collector.log_config_loader import setup_logging
 from collector.redis_stream_client import redis_stream_client
 from collector.router import router as metrics_router
 

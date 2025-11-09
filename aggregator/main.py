@@ -7,7 +7,7 @@ import signal
 from aggregator.config import settings
 from aggregator.db import timescale_db
 from aggregator.health_server import HealthServer
-from aggregator.logging import setup_logging
+from aggregator.log_config_loader import setup_logging
 from aggregator.redis_stream_client import redis_stream_client
 from aggregator.worker import AggregationWorker
 
