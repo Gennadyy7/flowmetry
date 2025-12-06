@@ -9,5 +9,8 @@ python registrar/manage.py migrate --noinput || {
   exit 1
 }
 
+echo "Ensuring foreign keys..."
+python registrar/manage.py ensure_fk
+
 echo "Starting supervisord..."
 exec supervisord -c /etc/supervisor/conf.d/supervisord.conf
