@@ -31,13 +31,17 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_metrics_info_app_id ON metrics_info 
 CREATE TABLE IF NOT EXISTS audit_log (
     id BIGSERIAL PRIMARY KEY,
     user_id INTEGER,
+    session_key VARCHAR(64),
     action TEXT NOT NULL CHECK (
-        action IN ('login', 'view_metrics', 'export_data', 'view_applications')
+        action IN ('login', 'view_metrics', 'export_data', 'view_applications', 'view_audit')
     ),
     target TEXT,
     ip_address INET,
+    user_agent TEXT,
+    status_code SMALLINT,
     timestamp TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_log_user ON audit_log (user_id);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_log_timestamp ON audit_log (timestamp DESC);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_log_session ON audit_log (session_key);
