@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from core.models import AuditLog
+from core.models import Application, AuditLog
 
 
 @admin.register(AuditLog)
@@ -10,3 +10,31 @@ class AuditLogAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'target', 'ip_address')
     readonly_fields = ('id', 'user', 'action', 'target', 'ip_address', 'timestamp')
     ordering = ('-timestamp',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+@admin.register(Application)
+class ApplicationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'owner', 'created_at')
+    list_display_links = ('id', 'name')
+    search_fields = ('name', 'owner__username')
+    list_filter = ('created_at', 'owner')
+    ordering = ('-created_at',)
+    readonly_fields = ('id', 'name', 'owner', 'created_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
