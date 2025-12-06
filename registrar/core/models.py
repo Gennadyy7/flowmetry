@@ -30,9 +30,34 @@ class Application(models.Model):
     )
     created_at = models.DateTimeField()
 
+    def __str__(self):
+        return self.name
+
     class Meta:
         db_table = 'application'
         managed = False
         verbose_name = 'Application'
         verbose_name_plural = 'Applications'
         ordering = ('-created_at',)
+
+
+class MetricInfo(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    description = models.TextField(blank=True)
+    unit = models.TextField(blank=True)
+    type = models.TextField()
+    attributes = models.JSONField()
+    application = models.ForeignKey(
+        Application, on_delete=models.RESTRICT, db_column='application_id'
+    )
+    created_at = models.DateTimeField()
+
+    def __str__(self):
+        return f'{self.name} ({self.type})'
+
+    class Meta:
+        db_table = 'metrics_info'
+        managed = False
+        verbose_name = 'Metric Info'
+        verbose_name_plural = 'Metrics Info'
