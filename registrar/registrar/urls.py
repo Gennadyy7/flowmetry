@@ -1,13 +1,15 @@
 from django.conf import settings
 from django.conf.urls.static import static
-from django.contrib import admin
 from django.urls import path
+from django.views.generic import RedirectView
 
+from registrar.admin_config import site
 from registrar.views import HealthCheckView
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('admin/', site.urls),
     path('health/', HealthCheckView.as_view(), name='health'),
+    path('', RedirectView.as_view(url='/admin/', permanent=False)),
 ]
 
 if settings.DEBUG:
