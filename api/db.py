@@ -389,55 +389,52 @@ class TimescaleDB:
         step_seconds: int,
         function: str,
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
-        raw_points = await self.fetch_counter_raw_values(
-            metric_name, labels, start_ts, end_ts
-        )
-        if not raw_points:
+        labels_json = json.dumps(labels) if labels else '{}'
+        async with self._get_connection() as conn:
+            metric_rows = await conn.fetch(
+                """
+                SELECT id, name, attributes
+                FROM metrics_info
+                WHERE name = $1
+                  AND attributes @> $2::jsonb
+                  AND type = 'counter'
+                """,
+                metric_name,
+                labels_json,
+            )
+        if not metric_rows:
             return []
-
+        result = []
         start_dt = datetime.fromtimestamp(start_ts, tz=UTC)
         end_dt = datetime.fromtimestamp(end_ts, tz=UTC)
-        current = start_dt
-
-        logger.debug(
-            'RATE: raw_points fetched',
-            extra={
-                'count': len(raw_points),
-                'points': [(ts.timestamp(), val) for ts, val in raw_points[:5]],
-            },
-        )
-
-        result = []
-        while current <= end_dt:
-            bucket_end = current + timedelta(seconds=step_seconds)
-            window_points = [
-                (ts, val) for ts, val in raw_points if current <= ts <= bucket_end
-            ]
-            if len(window_points) >= 2:
-                logger.debug(
-                    'RATE: computing for window',
-                    extra={
-                        'window_start': current.timestamp(),
-                        'window_end': bucket_end.timestamp(),
-                        'points_in_window': len(window_points),
-                        'values': [val for _, val in window_points],
-                    },
-                )
-
-                if function == 'rate':
-                    value = self.calculate_rate_with_resets(window_points, step_seconds)
-                else:
-                    value = self.calculate_increase_with_resets(window_points)
-            elif window_points:
-                value = 0.0
-            else:
-                current = bucket_end
+        for metric_row in metric_rows:
+            metric_id = metric_row['id']
+            metric_attrs = self._parse_attributes(metric_row['attributes'])
+            raw_points = await self.fetch_counter_raw_values_for_metric(
+                metric_id, start_ts, end_ts
+            )
+            if not raw_points:
                 continue
-
-            full_attrs = await self._get_metric_attributes(metric_name, labels)
-            result.append((metric_name, full_attrs, value, current))
-            current = bucket_end
-
+            current = start_dt
+            while current <= end_dt:
+                bucket_end = current + timedelta(seconds=step_seconds)
+                window_points = [
+                    (ts, val) for ts, val in raw_points if current <= ts <= bucket_end
+                ]
+                if len(window_points) >= 2:
+                    if function == 'rate':
+                        value = self.calculate_rate_with_resets(
+                            window_points, step_seconds
+                        )
+                    else:
+                        value = self.calculate_increase_with_resets(window_points)
+                elif window_points:
+                    value = 0.0
+                else:
+                    current = bucket_end
+                    continue
+                result.append((metric_name, metric_attrs, value, current))
+                current = bucket_end
         return result
 
     @staticmethod
@@ -584,6 +581,32 @@ class TimescaleDB:
         if not row:
             return filter_labels.copy()  # fallback
         return self._parse_attributes(row['attributes'])
+
+    async def fetch_counter_raw_values_for_metric(
+        self,
+        metric_id: int,
+        start_ts: float,
+        end_ts: float,
+    ) -> list[tuple[datetime, float]]:
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT v.time, v.value
+                FROM metrics_values v
+                WHERE v.metric_id = $1
+                  AND v.time >= to_timestamp($2)
+                  AND v.time <= to_timestamp($3)
+                ORDER BY v.time ASC
+                """,
+                metric_id,
+                start_ts,
+                end_ts,
+            )
+        return [
+            (row['time'], float(row['value']))
+            for row in rows
+            if row['value'] is not None
+        ]
 
 
 timescale_db = TimescaleDB()
