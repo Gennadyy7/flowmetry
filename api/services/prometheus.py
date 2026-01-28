@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 from typing import Any
 
@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 class PrometheusService:
-    @staticmethod
+    @classmethod
     async def handle_instant_query(
-        query: str, timestamp: float
+        cls, query: str, timestamp: float
     ) -> InstantQueryResponse:
         logger.debug(
             'Handling instant query', extra={'query': query, 'timestamp': timestamp}
@@ -54,6 +54,24 @@ class PrometheusService:
                 )
             )
 
+        timestamp_dt = datetime.fromtimestamp(timestamp, tz=UTC)
+
+        if parsed.metric_name == 'up':
+            series = [
+                (
+                    'up',
+                    parsed.labels,
+                    1.0,
+                    timestamp_dt,
+                )
+            ]
+
+            return cls._generate_instant_query_response(
+                parsed=parsed,
+                series=series,
+                timestamp=timestamp_dt,
+            )
+
         if parsed.function in ('rate', 'increase'):
             lookback = parsed.get_lookback_seconds()
             start_ts = timestamp - lookback
@@ -67,20 +85,10 @@ class PrometheusService:
                 function=parsed.function,
             )
 
-            result_items = []
-            for _name, attrs, value, _ts in series:
-                effective_name = parsed.get_effective_metric_name()
-                result_items.append(
-                    InstantResultItem(
-                        metric=MetricLabels(**{'__name__': effective_name, **attrs}),
-                        value=(timestamp, str(value)),
-                    )
-                )
-            return InstantQueryResponse(
-                data=InstantQueryData(
-                    resultType='vector',
-                    result=result_items,
-                )
+            return cls._generate_instant_query_response(
+                parsed=parsed,
+                series=series,
+                timestamp=timestamp_dt,
             )
 
         series = await timescale_db.fetch_metric_instant(
@@ -89,13 +97,25 @@ class PrometheusService:
             timestamp=timestamp,
         )
 
+        return cls._generate_instant_query_response(
+            parsed=parsed,
+            series=series,
+            timestamp=None,
+        )
+
+    @staticmethod
+    def _generate_instant_query_response(
+        parsed: ParsedQuery,
+        series: list[tuple[str, dict[str, Any], float, datetime]],
+        timestamp: datetime | None = None,
+    ) -> InstantQueryResponse:
         result_items = []
         for _name, attrs, value, ts in series:
             effective_name = parsed.get_effective_metric_name()
             result_items.append(
                 InstantResultItem(
                     metric=MetricLabels(**{'__name__': effective_name, **attrs}),
-                    value=(ts.timestamp(), str(value)),
+                    value=((timestamp or ts).timestamp(), str(value)),
                 )
             )
 
@@ -106,9 +126,9 @@ class PrometheusService:
             )
         )
 
-    @staticmethod
+    @classmethod
     async def handle_range_query(
-        query: str, start: float, end: float, step: int
+        cls, query: str, start: float, end: float, step: int
     ) -> QueryRangeResponse:
         logger.debug(
             'Handling range query',
@@ -135,6 +155,32 @@ class PrometheusService:
             },
         )
 
+        if parsed.scalar_value is not None:
+            logger.warning(
+                'Scalar in range query',
+                extra={'query': query, 'scalar_value': parsed.scalar_value},
+            )
+            raise ValueError('Invalid expression type "scalar" for range query')
+
+        if parsed.metric_name == 'up':
+            series = []
+            current_ts = start
+            while current_ts <= end:
+                series.append(
+                    (
+                        'up',
+                        parsed.labels,
+                        1.0,
+                        datetime.fromtimestamp(current_ts, tz=UTC),
+                    )
+                )
+                current_ts += step
+
+            return cls._generate_query_range_response(
+                parsed=parsed,
+                series=series,
+            )
+
         series = await timescale_db.fetch_timeseries_for_range(
             metric_name=parsed.metric_name or '',
             labels=parsed.labels,
@@ -147,10 +193,20 @@ class PrometheusService:
         logger.debug(f'Fetched {len(series)} series points')
 
         if parsed.aggregation:
-            series = PrometheusService._apply_aggregation(
+            series = cls._apply_aggregation(
                 series, parsed.aggregation, parsed.by_labels
             )
 
+        return cls._generate_query_range_response(
+            parsed=parsed,
+            series=series,
+        )
+
+    @staticmethod
+    def _generate_query_range_response(
+        parsed: ParsedQuery,
+        series: list[tuple[str, dict[str, Any], float, datetime]],
+    ) -> QueryRangeResponse:
         grouped: dict[tuple[tuple[str, str], ...], list[tuple[float, str]]] = (
             defaultdict(list)
         )

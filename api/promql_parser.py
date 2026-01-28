@@ -29,7 +29,9 @@ class ParsedQuery:
         return self.range.seconds if self.range else default
 
     def get_effective_metric_name(self) -> str:
-        base = self.metric_name or 'scalar'
+        if self.scalar_value is not None:
+            return self.raw
+        base = self.metric_name or 'unknown'
         if self.function != 'raw':
             base = f'{self.function}({base})'
         if self.aggregation:
@@ -119,12 +121,16 @@ class PromQLParser:
         if not query:
             raise ParseError('Empty query', query)
 
+        try:
+            float(query)
+            if query[0].isdigit() or (query[0] == '-' and query[1].isdigit()):
+                return ParsedQuery(raw=query, scalar_value=query)
+        except (ValueError, IndexError):
+            if query == '1+1':  # Grafana checks the source of the metrics in this way
+                return ParsedQuery(raw=query, scalar_value='2')
+
         if query == 'up':
-            return ParsedQuery(raw=query, scalar_value='1')
-        if query == '1':
-            return ParsedQuery(raw=query, scalar_value='1')
-        if query == '1+1':
-            return ParsedQuery(raw=query, scalar_value='2')
+            return ParsedQuery(raw=query, metric_name='up', labels={}, function='raw')
 
         match = self._FULL_EXPR_PATTERN.match(query)
         if not match:
