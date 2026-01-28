@@ -22,10 +22,33 @@ def _parse_any_value(kv: KeyValue) -> str:
     return ''  # fallback
 
 
+def _normalize_attribute_key(key: str) -> str:
+    return key.replace('.', '_')
+
+
+def _should_keep_attribute(key: str) -> bool:
+    system_prefixes = {
+        'telemetry.sdk.',
+        'otel.scope.',
+        'otel.library.',
+    }
+
+    return not any(key.startswith(prefix) for prefix in system_prefixes)
+
+
 def _attributes_to_dict(
     attributes: list[KeyValue],
 ) -> dict[str, str]:
-    return {kv.key: _parse_any_value(kv) for kv in attributes}
+    result = {}
+    for kv in attributes:
+        if not _should_keep_attribute(kv.key):
+            continue
+        clean_key = _normalize_attribute_key(kv.key)
+        clean_value = _parse_any_value(kv)
+        if clean_value:
+            result[clean_key] = clean_value
+
+    return result
 
 
 def _convert_number_data_point(
