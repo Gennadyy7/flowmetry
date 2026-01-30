@@ -297,8 +297,7 @@ class PrometheusService:
         op: str,
         by_labels: list[str],
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
-        grouped: dict[tuple[str, ...], list[float]] = defaultdict(list)
-        meta: dict[tuple[str, ...], tuple[str, dict[str, Any], datetime]] = {}
+        grouped: dict[tuple[tuple[str, ...], datetime], list[float]] = defaultdict(list)
 
         for name, attrs, value, ts in series:
             key_items = []
@@ -306,19 +305,13 @@ class PrometheusService:
                 if lbl == '__name__':
                     key_items.append(name)
                 else:
-                    key_items.append(attrs.get(lbl, ''))
+                    key_items.append(str(attrs.get(lbl, '')))
             key = tuple(key_items)
 
-            grouped[key].append(value)
-            if key not in meta:
-                new_attrs = {}
-                for lbl in by_labels:
-                    if lbl != '__name__' and lbl in attrs:
-                        new_attrs[lbl] = attrs[lbl]
-                meta[key] = (name, new_attrs, ts)
+            grouped[(key, ts)].append(value)
 
         result = []
-        for key, values in grouped.items():
+        for (key, timestamp), values in grouped.items():
             if op == 'sum':
                 agg_value = sum(values)
             elif op == 'avg':
@@ -332,7 +325,11 @@ class PrometheusService:
             else:
                 agg_value = 0.0
 
-            name, attrs, ts = meta[key]
-            result.append((f'{op}({name})', attrs, agg_value, ts))
+            attrs = {}
+            for i, lbl in enumerate(by_labels):
+                if lbl != '__name__' and key[i]:
+                    attrs[lbl] = key[i]
+
+            result.append((op, attrs, agg_value, timestamp))
 
         return result
