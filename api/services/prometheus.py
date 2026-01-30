@@ -74,17 +74,23 @@ class PrometheusService:
 
         if parsed.function in ('rate', 'increase'):
             lookback = parsed.get_lookback_seconds()
-            start_ts = timestamp - lookback
+            if lookback <= 0:
+                raise ValueError(
+                    f'Function {parsed.function} requires lookback window, got {lookback}'
+                )
 
-            series = await timescale_db.fetch_timeseries_for_range(
+            start_ts = timestamp - lookback
+            raw_series = await timescale_db.fetch_timeseries_for_range(
                 metric_name=parsed.metric_name or '',
                 labels=parsed.labels,
                 start_ts=start_ts,
                 end_ts=timestamp,
                 step_seconds=lookback,
                 function=parsed.function,
+                lookback_seconds=lookback,
             )
 
+            series = raw_series
             return cls._generate_instant_query_response(
                 parsed=parsed,
                 series=series,
@@ -181,6 +187,19 @@ class PrometheusService:
                 series=series,
             )
 
+        lookback_seconds = 0
+        if parsed.function in ('rate', 'increase'):
+            lookback_seconds = parsed.get_lookback_seconds()
+            if lookback_seconds <= 0:
+                raise ValueError(
+                    f'Function {parsed.function} requires lookback window, got {lookback_seconds}'
+                )
+            elif step > lookback_seconds:
+                logger.warning(
+                    f'Step ({step}s) > lookback window ({lookback_seconds}s) for {parsed.function}. '
+                    f'Results may be inaccurate.'
+                )
+
         series = await timescale_db.fetch_timeseries_for_range(
             metric_name=parsed.metric_name or '',
             labels=parsed.labels,
@@ -188,6 +207,7 @@ class PrometheusService:
             end_ts=end,
             step_seconds=step,
             function=parsed.function,
+            lookback_seconds=lookback_seconds,
         )
 
         logger.debug(f'Fetched {len(series)} series points')

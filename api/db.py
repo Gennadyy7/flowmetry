@@ -234,10 +234,21 @@ class TimescaleDB:
         end_ts: float,
         step_seconds: int,
         function: str = 'raw',
+        lookback_seconds: int = 0,
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
         if function in ('rate', 'increase'):
+            if lookback_seconds <= 0:
+                raise ValueError(
+                    f"Parameter 'lookback_seconds' must be positive for function '{function}'"
+                )
             return await self._fetch_counter_rate_or_increase(
-                metric_name, labels, start_ts, end_ts, step_seconds, function
+                metric_name,
+                labels,
+                start_ts,
+                end_ts,
+                step_seconds,
+                function,
+                lookback_seconds,
             )
 
         metric_type = await self._get_metric_type(metric_name, labels)
@@ -388,6 +399,7 @@ class TimescaleDB:
         end_ts: float,
         step_seconds: int,
         function: str,
+        lookback_seconds: int,
     ) -> list[tuple[str, dict[str, Any], float, datetime]]:
         labels_json = json.dumps(labels) if labels else '{}'
         async with self._get_connection() as conn:
@@ -404,75 +416,73 @@ class TimescaleDB:
             )
         if not metric_rows:
             return []
+
         result = []
         start_dt = datetime.fromtimestamp(start_ts, tz=UTC)
         end_dt = datetime.fromtimestamp(end_ts, tz=UTC)
+        lookback_delta = timedelta(seconds=lookback_seconds)
+
         for metric_row in metric_rows:
             metric_id = metric_row['id']
             metric_attrs = self._parse_attributes(metric_row['attributes'])
+
             raw_points = await self.fetch_counter_raw_values_for_metric(
-                metric_id, start_ts, end_ts
+                metric_id, start_ts - lookback_seconds, end_ts
             )
             if not raw_points:
                 continue
+
             current = start_dt
             while current <= end_dt:
-                bucket_end = current + timedelta(seconds=step_seconds)
+                window_start = current - lookback_delta
                 window_points = [
-                    (ts, val) for ts, val in raw_points if current <= ts <= bucket_end
+                    (ts, val) for ts, val in raw_points if window_start <= ts <= current
                 ]
+
                 if len(window_points) >= 2:
                     if function == 'rate':
-                        value = self.calculate_rate_with_resets(
-                            window_points, step_seconds
-                        )
-                    else:
-                        value = self.calculate_increase_with_resets(window_points)
-                elif window_points:
-                    value = 0.0
+                        value = self.calculate_counter_rate(window_points)
+                    else:  # 'increase'
+                        value = self.calculate_counter_increase(window_points)
                 else:
-                    current = bucket_end
-                    continue
+                    value = 0.0
+
                 result.append((metric_name, metric_attrs, value, current))
-                current = bucket_end
+                current += timedelta(seconds=step_seconds)
+
         return result
 
     @staticmethod
-    def calculate_rate_with_resets(
+    def calculate_counter_rate(
         points: Sequence[tuple[datetime, float]],
-        window_seconds: float,
     ) -> float:
         if len(points) < 2:
             return 0.0
 
-        total_delta = 0.0
-        for i in range(1, len(points)):
-            prev_val = points[i - 1][1]
-            curr_val = points[i][1]
-            delta = curr_val - prev_val
-            if delta < 0:
-                delta = curr_val
-            total_delta += delta
+        increase = TimescaleDB.calculate_counter_increase(points)
+        time_diff = (points[-1][0] - points[0][0]).total_seconds()
 
-        return total_delta / window_seconds
+        if time_diff <= 0:
+            return 0.0
+        return increase / time_diff
 
     @staticmethod
-    def calculate_increase_with_resets(
+    def calculate_counter_increase(
         points: Sequence[tuple[datetime, float]],
     ) -> float:
         if len(points) < 2:
             return 0.0
 
-        total_delta = 0.0
+        total_increase = 0.0
         for i in range(1, len(points)):
             prev_val = points[i - 1][1]
             curr_val = points[i][1]
             delta = curr_val - prev_val
-            if delta < 0:
-                delta = curr_val
-            total_delta += delta
-
-        return total_delta
+            if delta >= 0:
+                total_increase += delta
+            else:
+                total_increase += prev_val
+        return total_increase
 
     async def fetch_all_metrics(self, lookback_minutes: int = 5) -> list[DBMetric]:
         async with self._get_connection() as conn:
