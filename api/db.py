@@ -488,17 +488,11 @@ class TimescaleDB:
     ) -> float:
         if len(points) < 2:
             return 0.0
-
-        total_increase = 0.0
+        increase = points[-1][1] - points[0][1]
         for i in range(1, len(points)):
-            prev_val = points[i - 1][1]
-            curr_val = points[i][1]
-            delta = curr_val - prev_val
-            if delta >= 0:
-                total_increase += delta
-            else:
-                total_increase += prev_val
-        return total_increase
+            if points[i][1] < points[i - 1][1]:
+                increase += points[i - 1][1]
+        return increase
 
     async def fetch_all_metrics(self, lookback_minutes: int = 5) -> list[DBMetric]:
         async with self._get_connection() as conn:
