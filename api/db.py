@@ -298,11 +298,11 @@ class TimescaleDB:
         async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT
+                SELECT DISTINCT ON (i.id, time_bucket($4::interval, v.time))
                     i.name,
                     i.attributes,
                     time_bucket($4::interval, v.time) AS bucket,
-                    last(v.value, v.time) AS value  -- Последнее значение в бакете
+                    v.value
                 FROM metrics_info i
                 JOIN metrics_values v ON i.id = v.metric_id
                 WHERE i.name = $1
@@ -310,8 +310,7 @@ class TimescaleDB:
                   AND i.type = 'counter'
                   AND v.time >= to_timestamp($3)
                   AND v.time <= to_timestamp($5)
-                GROUP BY i.id, i.name, i.attributes, bucket
-                ORDER BY bucket ASC
+                ORDER BY i.id, time_bucket($4::interval, v.time), v.time DESC
                 """,
                 metric_name,
                 labels_json,
@@ -356,11 +355,11 @@ class TimescaleDB:
         async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT
+                SELECT DISTINCT ON (i.id, time_bucket($4::interval, v.time))
                     i.name,
                     i.attributes,
                     time_bucket($4::interval, v.time) AS bucket,
-                    AVG(v.value) AS value
+                    v.value
                 FROM metrics_info i
                 JOIN metrics_values v ON i.id = v.metric_id
                 WHERE i.name = $1
@@ -368,8 +367,7 @@ class TimescaleDB:
                   AND i.type = 'gauge'
                   AND v.time >= to_timestamp($3)
                   AND v.time <= to_timestamp($5)
-                GROUP BY i.id, i.name, i.attributes, bucket
-                ORDER BY bucket ASC
+                ORDER BY i.id, time_bucket($4::interval, v.time), v.time DESC
                 """,
                 metric_name,
                 labels_json,
@@ -378,9 +376,12 @@ class TimescaleDB:
                 end_ts,
             )
 
-        logger.debug(f'Gauge query returned {len(rows)} rows')
+        logger.debug(
+            f'Gauge query returned {len(rows)} rows',
+            extra={'rows_sample': rows[:3] if rows else []},
+        )
 
-        return [
+        result = [
             (
                 row['name'],
                 self._parse_attributes(row['attributes']),
@@ -390,6 +391,21 @@ class TimescaleDB:
             for row in rows
             if row['value'] is not None
         ]
+
+        if result and logger.isEnabledFor(logging.DEBUG):
+            values = [val for _, _, val, _ in result]
+            logger.debug(
+                'Gauge values statistics',
+                extra={
+                    'count': len(values),
+                    'min': min(values) if values else None,
+                    'max': max(values) if values else None,
+                    'avg': sum(values) / len(values) if values else None,
+                    'first_few': values[:5],
+                },
+            )
+
+        return result
 
     async def _fetch_counter_rate_or_increase(
         self,
