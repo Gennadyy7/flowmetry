@@ -451,15 +451,23 @@ class TimescaleDB:
             current = start_dt
             while current <= end_dt:
                 window_start = current - lookback_delta
+                window_end = current
+
                 window_points = [
-                    (ts, val) for ts, val in raw_points if window_start <= ts <= current
+                    (ts, val)
+                    for ts, val in raw_points
+                    if window_start <= ts <= window_end
                 ]
 
                 if len(window_points) >= 2:
                     if function == 'rate':
-                        value = self.calculate_counter_rate(window_points)
+                        value = self.calculate_counter_rate(
+                            window_points, lookback_seconds, window_start, window_end
+                        )
                     else:  # 'increase'
-                        value = self.calculate_counter_increase(window_points)
+                        value = self.calculate_counter_increase(
+                            window_points, window_start, window_end
+                        )
                 else:
                     value = 0.0
 
@@ -468,31 +476,90 @@ class TimescaleDB:
 
         return result
 
-    @staticmethod
+    @classmethod
     def calculate_counter_rate(
+        cls,
         points: Sequence[tuple[datetime, float]],
+        range_seconds: float,
+        range_start: datetime,
+        range_end: datetime,
     ) -> float:
-        if len(points) < 2:
+        if range_seconds <= 0:
             return 0.0
 
-        increase = TimescaleDB.calculate_counter_increase(points)
-        time_diff = (points[-1][0] - points[0][0]).total_seconds()
+        raw_increase = cls.calculate_counter_increase_raw(points)
+        extrapolated_increase = cls._apply_extrapolation(
+            raw_increase, points, range_start, range_end, is_counter=True
+        )
 
-        if time_diff <= 0:
-            return 0.0
-        return increase / time_diff
+        return extrapolated_increase / range_seconds
 
     @staticmethod
-    def calculate_counter_increase(
+    def calculate_counter_increase_raw(
         points: Sequence[tuple[datetime, float]],
     ) -> float:
         if len(points) < 2:
             return 0.0
+
         increase = points[-1][1] - points[0][1]
         for i in range(1, len(points)):
             if points[i][1] < points[i - 1][1]:
                 increase += points[i - 1][1]
         return increase
+
+    @staticmethod
+    def _apply_extrapolation(
+        raw_value: float,
+        points: Sequence[tuple[datetime, float]],
+        range_start: datetime,
+        range_end: datetime,
+        is_counter: bool = True,
+    ) -> float:
+        if len(points) < 2 or raw_value == 0.0:
+            return raw_value
+
+        first_t = points[0][0]
+        last_t = points[-1][0]
+        sampled_interval = (last_t - first_t).total_seconds()
+
+        if sampled_interval <= 0:
+            return raw_value
+
+        num_samples_minus_one = len(points) - 1
+        average_duration_between_samples = sampled_interval / num_samples_minus_one
+
+        duration_to_start = abs((first_t - range_start).total_seconds())
+        duration_to_end = abs((range_end - last_t).total_seconds())
+
+        extrapolation_threshold = average_duration_between_samples * 1.1
+
+        if duration_to_start >= extrapolation_threshold:
+            duration_to_start = average_duration_between_samples / 2.0
+
+        if is_counter and raw_value > 0 and points[0][1] >= 0:
+            duration_to_zero = sampled_interval * (points[0][1] / raw_value)
+            if duration_to_zero < duration_to_start:
+                duration_to_start = duration_to_zero
+
+        if duration_to_end >= extrapolation_threshold:
+            duration_to_end = average_duration_between_samples / 2.0
+
+        total_covered = sampled_interval + duration_to_start + duration_to_end
+        factor = total_covered / sampled_interval
+
+        return raw_value * factor
+
+    @classmethod
+    def calculate_counter_increase(
+        cls,
+        points: Sequence[tuple[datetime, float]],
+        range_start: datetime,
+        range_end: datetime,
+    ) -> float:
+        raw_increase = cls.calculate_counter_increase_raw(points)
+        return cls._apply_extrapolation(
+            raw_increase, points, range_start, range_end, is_counter=True
+        )
 
     async def fetch_all_metrics(self, lookback_minutes: int = 5) -> list[DBMetric]:
         async with self._get_connection() as conn:
