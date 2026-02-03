@@ -8,7 +8,6 @@ from typing import Any, cast
 import asyncpg
 
 from api.config import settings
-from api.schemas import DBMetric, MetricType
 
 logger = logging.getLogger(__name__)
 
@@ -100,70 +99,6 @@ class TimescaleDB:
             labels.update(self._parse_attributes(row['attributes']))
             result.append({k: str(v) for k, v in labels.items()})
         return result
-
-    async def fetch_counter_raw_values(
-        self,
-        metric_name: str,
-        labels: dict[str, str],
-        start_ts: float,
-        end_ts: float,
-    ) -> list[tuple[datetime, float]]:
-        labels_json = json.dumps(labels) if labels else '{}'
-        async with self._get_connection() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT v.time, v.value
-                FROM metrics_info i
-                JOIN metrics_values v ON i.id = v.metric_id
-                WHERE i.name = $1
-                  AND i.attributes @> $2::jsonb
-                  AND i.type = 'counter'
-                  AND v.time >= to_timestamp($3)
-                  AND v.time <= to_timestamp($4)
-                ORDER BY v.time ASC
-                """,
-                metric_name,
-                labels_json,
-                start_ts,
-                end_ts,
-            )
-        return [
-            (row['time'], float(row['value']))
-            for row in rows
-            if row['value'] is not None
-        ]
-
-    async def fetch_gauge_values(
-        self,
-        metric_name: str,
-        labels: dict[str, str],
-        start_ts: float,
-        end_ts: float,
-    ) -> list[tuple[datetime, float]]:
-        labels_json = json.dumps(labels) if labels else '{}'
-        async with self._get_connection() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT v.time, v.value
-                FROM metrics_info i
-                JOIN metrics_values v ON i.id = v.metric_id
-                WHERE i.name = $1
-                  AND i.attributes @> $2::jsonb
-                  AND i.type = 'gauge'
-                  AND v.time >= to_timestamp($3)
-                  AND v.time <= to_timestamp($4)
-                ORDER BY v.time ASC
-                """,
-                metric_name,
-                labels_json,
-                start_ts,
-                end_ts,
-            )
-        return [
-            (row['time'], float(row['value']))
-            for row in rows
-            if row['value'] is not None
-        ]
 
     async def fetch_metric_instant(
         self,
@@ -433,6 +368,12 @@ class TimescaleDB:
         if not metric_rows:
             return []
 
+        metric_ids = [row['id'] for row in metric_rows]
+
+        all_points_dict = await self.fetch_counter_raw_values_for_metrics_batch(
+            metric_ids, start_ts - lookback_seconds, end_ts
+        )
+
         result = []
         start_dt = datetime.fromtimestamp(start_ts, tz=UTC)
         end_dt = datetime.fromtimestamp(end_ts, tz=UTC)
@@ -442,9 +383,7 @@ class TimescaleDB:
             metric_id = metric_row['id']
             metric_attrs = self._parse_attributes(metric_row['attributes'])
 
-            raw_points = await self.fetch_counter_raw_values_for_metric(
-                metric_id, start_ts - lookback_seconds, end_ts
-            )
+            raw_points = all_points_dict.get(metric_id, [])
             if not raw_points:
                 continue
 
@@ -561,76 +500,6 @@ class TimescaleDB:
             raw_increase, points, range_start, range_end, is_counter=True
         )
 
-    async def fetch_all_metrics(self, lookback_minutes: int = 5) -> list[DBMetric]:
-        async with self._get_connection() as conn:
-            values = await conn.fetch(
-                """
-                SELECT
-                    i.name,
-                    i.description,
-                    i.unit,
-                    i.type,
-                    i.attributes,
-                    v.value,
-                    v.time
-                FROM metrics_info i
-                JOIN metrics_values v ON i.id = v.metric_id
-                WHERE v.time >= NOW() - ($1 * INTERVAL '1 minute')
-                ORDER BY v.time DESC
-                """,
-                lookback_minutes,
-            )
-
-            histograms = await conn.fetch(
-                """
-                SELECT
-                    i.name,
-                    i.description,
-                    i.unit,
-                    i.attributes,
-                    h.sum,
-                    h.count,
-                    h.bucket_counts,
-                    i.explicit_bounds,
-                    h.time
-                FROM metrics_info i
-                JOIN metrics_histograms h ON i.id = h.metric_id
-                WHERE h.time >= NOW() - ($1 * INTERVAL '1 minute')
-                ORDER BY h.time DESC
-                """,
-                lookback_minutes,
-            )
-
-        result: list[DBMetric] = []
-        for row in values:
-            result.append(
-                DBMetric(
-                    name=row['name'],
-                    description=row['description'] or '',
-                    unit=row['unit'] or '',
-                    type=MetricType(row['type']),
-                    attributes=self._parse_attributes(row['attributes']),
-                    value=float(row['value']),
-                    time=row['time'],
-                )
-            )
-        for row in histograms:
-            result.append(
-                DBMetric(
-                    name=row['name'],
-                    description=row['description'] or '',
-                    unit=row['unit'] or '',
-                    type=MetricType.HISTOGRAM,
-                    attributes=self._parse_attributes(row['attributes']),
-                    sum=float(row['sum']),
-                    count=int(row['count']),
-                    bucket_counts=list(row['bucket_counts'] or []),
-                    explicit_bounds=list(row['explicit_bounds'] or []),
-                    time=row['time'],
-                )
-            )
-        return result
-
     async def fetch_all_label_names(self) -> list[str]:
         async with self._get_connection() as conn:
             rows = await conn.fetch(
@@ -649,51 +518,39 @@ class TimescaleDB:
             )
             return sorted({row['value'] for row in rows})
 
-    async def _get_metric_attributes(
+    async def fetch_counter_raw_values_for_metrics_batch(
         self,
-        metric_name: str,
-        filter_labels: dict[str, str],
-    ) -> dict[str, Any]:
-        labels_json = json.dumps(filter_labels) if filter_labels else '{}'
-        async with self._get_connection() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT attributes FROM metrics_info
-                WHERE name = $1 AND attributes @> $2::jsonb
-                LIMIT 1
-                """,
-                metric_name,
-                labels_json,
-            )
-        if not row:
-            return filter_labels.copy()  # fallback
-        return self._parse_attributes(row['attributes'])
-
-    async def fetch_counter_raw_values_for_metric(
-        self,
-        metric_id: int,
+        metric_ids: list[int],
         start_ts: float,
         end_ts: float,
-    ) -> list[tuple[datetime, float]]:
+    ) -> dict[int, list[tuple[datetime, float]]]:
+        if not metric_ids:
+            return {}
+
         async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT v.time, v.value
+                SELECT v.metric_id, v.time, v.value
                 FROM metrics_values v
-                WHERE v.metric_id = $1
+                WHERE v.metric_id = ANY($1)
                   AND v.time >= to_timestamp($2)
                   AND v.time <= to_timestamp($3)
-                ORDER BY v.time ASC
+                ORDER BY v.metric_id, v.time ASC
                 """,
-                metric_id,
+                metric_ids,
                 start_ts,
                 end_ts,
             )
-        return [
-            (row['time'], float(row['value']))
-            for row in rows
-            if row['value'] is not None
-        ]
+
+        result: dict[int, list[tuple[datetime, float]]] = {}
+        for row in rows:
+            metric_id = row['metric_id']
+            if metric_id not in result:
+                result[metric_id] = []
+            if row['value'] is not None:
+                result[metric_id].append((row['time'], float(row['value'])))
+
+        return result
 
 
 timescale_db = TimescaleDB()
