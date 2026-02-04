@@ -561,10 +561,20 @@ class TimescaleDB:
     ) -> list[tuple[str, dict[str, Any], list[int], float, int, list[float], datetime]]:
         labels_json = json.dumps(labels) if labels else '{}'
 
+        logger.debug(
+            'Fetching histogram data from DB',
+            extra={
+                'metric_name': metric_name,
+                'start_ts': start_ts,
+                'end_ts': end_ts,
+                'labels_count': len(labels),
+            },
+        )
+
         async with self._get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT DISTINCT ON (i.id, h.time)
+                SELECT
                     i.name,
                     i.attributes,
                     i.explicit_bounds,
@@ -579,7 +589,7 @@ class TimescaleDB:
                   AND i.type = 'histogram'
                   AND h.time >= to_timestamp($3)
                   AND h.time <= to_timestamp($4)
-                ORDER BY i.id, h.time DESC
+                ORDER BY h.time ASC
                 """,
                 metric_name,
                 labels_json,
@@ -587,9 +597,22 @@ class TimescaleDB:
                 end_ts,
             )
 
+        logger.debug(
+            f'Fetched {len(rows)} histogram data rows',
+            extra={'metric_name': metric_name},
+        )
+
         result = []
         for row in rows:
             if not row['bucket_counts'] or not row['explicit_bounds']:
+                logger.warning(
+                    'Skipping histogram row with invalid data',
+                    extra={
+                        'metric_name': row['name'],
+                        'has_bucket_counts': bool(row['bucket_counts']),
+                        'has_bounds': bool(row['explicit_bounds']),
+                    },
+                )
                 continue
 
             result.append(
@@ -603,6 +626,11 @@ class TimescaleDB:
                     row['time'],
                 )
             )
+
+        logger.debug(
+            f'Returned {len(result)} histogram data entries',
+            extra={'metric_name': metric_name},
+        )
 
         return result
 

@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
+import logging
 import re
 from typing import ClassVar, Literal, NamedTuple, cast
+
+logger = logging.getLogger(__name__)
 
 
 class RangeVector(NamedTuple):
@@ -154,6 +157,51 @@ class PromQLParser:
     def _build_parsed_query(self, query: str, match: re.Match[str]) -> ParsedQuery:
         groups = match.groupdict()
 
+        if groups['quantile']:
+            quantile = float(groups['quantile'])
+
+            inner_expr_start = query.find(',') + 1
+            inner_expr_end = query.rfind(')')
+            inner_expr = query[inner_expr_start:inner_expr_end].strip()
+
+            if not inner_expr:
+                raise ParseError(
+                    'Empty inner expression in histogram_quantile',
+                    query,
+                    position=inner_expr_start,
+                )
+
+            try:
+                inner_parsed = self.parse(inner_expr)
+            except Exception as e:
+                raise ParseError(
+                    f'Failed to parse inner expression of histogram_quantile: {inner_expr}. Error: {str(e)}',
+                    query,
+                    position=inner_expr_start,
+                ) from e
+
+            if inner_parsed.metric_name and not inner_parsed.metric_name.endswith(
+                '_bucket'
+            ):
+                logger.warning(
+                    f"histogram_quantile expects metric ending with '_bucket', got: {inner_parsed.metric_name}",
+                    extra={'query': query, 'inner_expr': inner_expr},
+                )
+
+            return ParsedQuery(
+                raw=query,
+                metric_name=inner_parsed.metric_name,
+                labels=inner_parsed.labels,
+                function=inner_parsed.function,
+                range=inner_parsed.range,
+                aggregation=inner_parsed.aggregation,
+                by_labels=inner_parsed.by_labels,
+                without_labels=inner_parsed.without_labels,
+                scalar_value=inner_parsed.scalar_value,
+                quantile=quantile,
+                histogram_metric=inner_parsed.metric_name,
+            )
+
         metric_part = groups['metric']
         metric_name, labels = self._parse_metric_and_labels(metric_part)
 
@@ -166,16 +214,6 @@ class PromQLParser:
             by_labels = [s.strip() for s in groups['by'].split(',') if s.strip()]
             for lbl in by_labels:
                 _PromQLValidator.validate_label_name(lbl)
-
-        quantile = None
-        histogram_metric = None
-        if groups['quantile']:
-            quantile = float(groups['quantile'])
-            metric_match = re.search(
-                r'([a-zA-Z_:][a-zA-Z0-9_:]*)\{', groups['metric']
-            ) or re.search(r'([a-zA-Z_:][a-zA-Z0-9_:]*)', groups['metric'])
-            if metric_match:
-                histogram_metric = metric_match.group(1)
 
         return ParsedQuery(
             raw=query,
@@ -190,8 +228,8 @@ class PromQLParser:
                 groups['agg_op'].lower() if groups['agg_op'] else None,
             ),
             by_labels=by_labels,
-            quantile=quantile,
-            histogram_metric=histogram_metric,
+            quantile=None,
+            histogram_metric=None,
         )
 
     def _parse_metric_and_labels(self, part: str) -> tuple[str | None, dict[str, str]]:

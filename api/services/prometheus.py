@@ -41,6 +41,22 @@ class PrometheusService:
             )
             raise
 
+        if parsed.quantile is not None and parsed.histogram_metric is not None:
+            logger.debug(
+                'Handling histogram_quantile query',
+                extra={
+                    'quantile': parsed.quantile,
+                    'metric': parsed.histogram_metric,
+                    'function': parsed.function,
+                },
+            )
+            series = await cls._handle_histogram_quantile(parsed, timestamp)
+            return cls._generate_instant_query_response(
+                parsed=parsed,
+                series=series,
+                timestamp=datetime.fromtimestamp(timestamp, tz=UTC),
+            )
+
         if parsed.scalar_value is not None:
             return InstantQueryResponse(
                 data=InstantQueryData(
@@ -183,6 +199,23 @@ class PrometheusService:
                 'step_input': step,
             },
         )
+
+        if parsed.quantile is not None and parsed.histogram_metric is not None:
+            logger.debug(
+                'Handling histogram_quantile range query',
+                extra={
+                    'quantile': parsed.quantile,
+                    'metric': parsed.histogram_metric,
+                    'function': parsed.function,
+                    'start': start,
+                    'end': end,
+                    'step': step,
+                },
+            )
+            series = await cls._handle_histogram_quantile_range(
+                parsed, start, end, step
+            )
+            return cls._generate_query_range_response(parsed=parsed, series=series)
 
         if parsed.scalar_value is not None:
             logger.warning(
@@ -384,40 +417,112 @@ class PrometheusService:
         if parsed.quantile is None or parsed.histogram_metric is None:
             return []
 
+        base_name, _ = cls._extract_histogram_components(parsed.histogram_metric or '')
+
+        need_rate = parsed.function in ('rate', 'increase')
+        lookback = parsed.get_lookback_seconds(default=300)
+
+        start_ts = timestamp - (lookback if need_rate else 300)
+
+        logger.debug(
+            'Fetching histogram data for quantile',
+            extra={
+                'base_name': base_name,
+                'need_rate': need_rate,
+                'lookback': lookback,
+                'start_ts': start_ts,
+                'end_ts': timestamp,
+            },
+        )
+
         histogram_data = await timescale_db.fetch_histogram_data(
-            metric_name=parsed.histogram_metric,
+            metric_name=base_name,
             labels=parsed.labels,
-            start_ts=timestamp - 300,
+            start_ts=start_ts,
             end_ts=timestamp,
         )
+
+        if not histogram_data:
+            logger.debug(
+                'No histogram data found for quantile calculation',
+                extra={'base_name': base_name, 'timestamp': timestamp},
+            )
+            return []
 
         result = []
         timestamp_dt = datetime.fromtimestamp(timestamp, tz=UTC)
 
-        for (
-            _name,
-            attrs,
-            bucket_counts,
-            _sum_val,
-            count_val,
-            bounds,
-            _,
-        ) in histogram_data:
-            quantile_value = cls._calculate_histogram_quantile(
-                quantile=parsed.quantile,
-                bucket_counts=bucket_counts,
-                bounds=bounds,
-                total_count=count_val,
-            )
+        histogram_data.sort(key=lambda x: x[6])
 
-            result.append(
-                (
-                    parsed.histogram_metric,
-                    attrs,
-                    quantile_value,
-                    timestamp_dt,
+        latest_entry = histogram_data[-1]
+        name, attrs, bucket_counts, sum_val, count_val, bounds, time = latest_entry
+
+        processed_bucket_counts: list[float] = [float(x) for x in bucket_counts]
+        processed_count: float = float(count_val)
+
+        if need_rate and len(histogram_data) >= 2:
+            prev_entry = histogram_data[-2]
+            prev_bucket_counts = prev_entry[2]
+            prev_count = prev_entry[4]
+            prev_time = prev_entry[6]
+
+            time_diff = (time - prev_time).total_seconds()
+
+            if time_diff > 0:
+                bucket_deltas: list[float] = [
+                    max(0.0, float(curr - prev))
+                    for curr, prev in zip(
+                        bucket_counts, prev_bucket_counts, strict=False
+                    )
+                ]
+
+                count_delta: float = max(0.0, float(count_val - prev_count))
+
+                processed_bucket_counts = [delta / time_diff for delta in bucket_deltas]
+                processed_count = count_delta / time_diff
+
+                logger.debug(
+                    'Computed histogram rate for quantile',
+                    extra={
+                        'time_diff': time_diff,
+                        'count_delta': count_delta,
+                        'processed_count': processed_count,
+                        'sample_buckets': processed_bucket_counts[:3],
+                    },
                 )
+            else:
+                logger.warning(
+                    'Time difference is zero or negative, cannot compute rate',
+                    extra={'time_diff': time_diff},
+                )
+
+        quantile_value = cls._calculate_histogram_quantile(
+            quantile=parsed.quantile,
+            bucket_counts=processed_bucket_counts,
+            bounds=bounds,
+            total_count=processed_count,
+        )
+
+        result_name = parsed.histogram_metric if parsed.histogram_metric else base_name
+
+        result.append(
+            (
+                result_name,
+                attrs,
+                quantile_value,
+                timestamp_dt,
             )
+        )
+
+        logger.debug(
+            'Computed histogram quantile',
+            extra={
+                'quantile': parsed.quantile,
+                'value': quantile_value,
+                'count': processed_count,
+                'buckets_count': len(processed_bucket_counts),
+            },
+        )
 
         return result
 
@@ -432,63 +537,120 @@ class PrometheusService:
         if parsed.quantile is None or parsed.histogram_metric is None:
             return []
 
+        base_name, _ = cls._extract_histogram_components(parsed.histogram_metric or '')
+
+        need_rate = parsed.function in ('rate', 'increase')
+        lookback = parsed.get_lookback_seconds(default=300)
+
+        fetch_start = start - (lookback if need_rate else 0)
+
+        logger.debug(
+            'Fetching histogram data for range quantile',
+            extra={
+                'base_name': base_name,
+                'need_rate': need_rate,
+                'lookback': lookback,
+                'fetch_start': fetch_start,
+                'end': end,
+            },
+        )
+
         histogram_data = await timescale_db.fetch_histogram_data(
-            metric_name=parsed.histogram_metric,
+            metric_name=base_name,
             labels=parsed.labels,
-            start_ts=start,
+            start_ts=fetch_start,
             end_ts=end,
         )
+
+        if not histogram_data:
+            logger.debug(
+                'No histogram data found for range quantile',
+                extra={'base_name': base_name, 'start': start, 'end': end},
+            )
+            return []
 
         result = []
         current_ts = start
 
-        data_by_time: dict[
-            datetime,
-            list[tuple[str, dict[str, Any], list[int], float, int, list[float]]],
-        ] = {}
-        for (
-            name,
-            attrs,
-            bucket_counts,
-            sum_val,
-            count_val,
-            bounds,
-            time,
-        ) in histogram_data:
-            data_by_time.setdefault(time, []).append(
-                (name, attrs, bucket_counts, sum_val, count_val, bounds)
-            )
+        data_by_time: dict[datetime, list[tuple[Any, ...]]] = {}
+        for entry in histogram_data:
+            name, attrs, bucket_counts, sum_val, count_val, bounds, time = entry
+            data_by_time.setdefault(time, []).append(entry)
+
+        sorted_times = sorted(data_by_time.keys())
 
         while current_ts <= end:
             current_dt = datetime.fromtimestamp(current_ts, tz=UTC)
 
             closest_time = None
             min_diff = float('inf')
+            max_diff = step * 1.5
 
-            for time_key in data_by_time.keys():
+            for time_key in sorted_times:
                 diff = abs((time_key - current_dt).total_seconds())
-                if diff < min_diff and diff < step:
+                if diff < min_diff and diff <= max_diff:
                     min_diff = diff
                     closest_time = time_key
 
             if closest_time:
-                for (
-                    _name,
-                    attrs,
-                    bucket_counts,
-                    _sum_val,
-                    count_val,
-                    bounds,
-                ) in data_by_time[closest_time]:
+                entries = data_by_time[closest_time]
+
+                for entry in entries:
+                    name, attrs, bucket_counts, sum_val, count_val, bounds, time = entry
+
+                    processed_bucket_counts: list[float] = [
+                        float(x) for x in bucket_counts
+                    ]
+                    processed_count: float = float(count_val)
+
+                    if need_rate:
+                        prev_time = None
+                        for t in sorted_times:
+                            if t < closest_time:
+                                prev_time = t
+                            else:
+                                break
+
+                        if prev_time and prev_time in data_by_time:
+                            prev_entry = data_by_time[prev_time][0]
+                            prev_bucket_counts = prev_entry[2]
+                            prev_count = prev_entry[4]
+
+                            time_diff = (closest_time - prev_time).total_seconds()
+
+                            if time_diff > 0:
+                                bucket_deltas: list[float] = [
+                                    max(0.0, float(curr - prev))
+                                    for curr, prev in zip(
+                                        bucket_counts, prev_bucket_counts, strict=False
+                                    )
+                                ]
+
+                                count_delta: float = max(
+                                    0.0, float(count_val - prev_count)
+                                )
+
+                                processed_bucket_counts = [
+                                    delta / time_diff for delta in bucket_deltas
+                                ]
+                                processed_count = count_delta / time_diff
+
                     quantile_value = cls._calculate_histogram_quantile(
                         quantile=parsed.quantile,
-                        bucket_counts=bucket_counts,
+                        bucket_counts=processed_bucket_counts,
                         bounds=bounds,
-                        total_count=count_val,
+                        total_count=processed_count,
                     )
+
+                    result_name = (
+                        parsed.histogram_metric
+                        if parsed.histogram_metric
+                        else base_name
+                    )
+
                     result.append(
                         (
-                            parsed.histogram_metric,
+                            result_name,
                             attrs,
                             quantile_value,
                             current_dt,
@@ -497,20 +659,31 @@ class PrometheusService:
 
             current_ts += step
 
+        logger.debug(
+            'Computed histogram quantile range',
+            extra={
+                'quantile': parsed.quantile,
+                'points_count': len(result),
+                'start': start,
+                'end': end,
+                'step': step,
+            },
+        )
+
         return result
 
     @staticmethod
     def _calculate_histogram_quantile(
         quantile: float,
-        bucket_counts: list[int],
+        bucket_counts: list[float],
         bounds: list[float],
-        total_count: int,
+        total_count: float,
     ) -> float:
         if total_count == 0 or quantile < 0 or quantile > 1:
             return 0.0
 
         cumulative_counts = []
-        cumulative = 0
+        cumulative = 0.0
         for count in bucket_counts:
             cumulative += count
             cumulative_counts.append(cumulative)
@@ -531,7 +704,7 @@ class PrometheusService:
 
         bucket_count = bucket_counts[bucket_index]
 
-        count_below = 0 if bucket_index == 0 else cumulative_counts[bucket_index - 1]
+        count_below = 0.0 if bucket_index == 0 else cumulative_counts[bucket_index - 1]
 
         if bucket_count > 0:
             fraction = (target_count - count_below) / bucket_count
