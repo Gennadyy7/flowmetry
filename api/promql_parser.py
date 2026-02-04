@@ -24,6 +24,8 @@ class ParsedQuery:
     by_labels: list[str] = field(default_factory=list)
     without_labels: list[str] = field(default_factory=list)
     scalar_value: str | None = None
+    quantile: float | None = None
+    histogram_metric: str | None = None
 
     def get_lookback_seconds(self, default: int = 300) -> int:
         return self.range.seconds if self.range else default
@@ -74,17 +76,19 @@ class PromQLParser:
     _FULL_EXPR_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
         r"""
         ^\s*
-        # Optional aggregation: sum(...) by (labels)
+        # Optional aggregation or histogram_quantile
         (?:
             (?P<agg_op>sum|avg|min|max|count)\s*\(\s*
+            |
+            histogram_quantile\s*\(\s*(?P<quantile>[\d.]+)\s*,\s*
         )?
         # Optional function: rate(...) or increase(...)
         (?:
             (?P<func>rate|increase)\s*\(\s*
         )?
-        # Metric selector: name{labels} or {labels}
+        # Metric selector
         (?P<metric>[a-zA-Z_:][a-zA-Z0-9_:]*\{.*?\}|\{.*?\}|[a-zA-Z_:][a-zA-Z0-9_:]*)
-        # Optional range vector: [5m]
+        # Optional range vector
         (?:
             \[\s*(?P<range>\d+(?:\.\d+)?[smhdw])\s*\]
         )?
@@ -163,6 +167,16 @@ class PromQLParser:
             for lbl in by_labels:
                 _PromQLValidator.validate_label_name(lbl)
 
+        quantile = None
+        histogram_metric = None
+        if groups['quantile']:
+            quantile = float(groups['quantile'])
+            metric_match = re.search(
+                r'([a-zA-Z_:][a-zA-Z0-9_:]*)\{', groups['metric']
+            ) or re.search(r'([a-zA-Z_:][a-zA-Z0-9_:]*)', groups['metric'])
+            if metric_match:
+                histogram_metric = metric_match.group(1)
+
         return ParsedQuery(
             raw=query,
             metric_name=metric_name,
@@ -176,6 +190,8 @@ class PromQLParser:
                 groups['agg_op'].lower() if groups['agg_op'] else None,
             ),
             by_labels=by_labels,
+            quantile=quantile,
+            histogram_metric=histogram_metric,
         )
 
     def _parse_metric_and_labels(self, part: str) -> tuple[str | None, dict[str, str]]:

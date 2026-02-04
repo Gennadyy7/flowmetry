@@ -552,5 +552,175 @@ class TimescaleDB:
 
         return result
 
+    async def fetch_histogram_data(
+        self,
+        metric_name: str,
+        labels: dict[str, str],
+        start_ts: float,
+        end_ts: float,
+    ) -> list[tuple[str, dict[str, Any], list[int], float, int, list[float], datetime]]:
+        labels_json = json.dumps(labels) if labels else '{}'
+
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (i.id, h.time)
+                    i.name,
+                    i.attributes,
+                    i.explicit_bounds,
+                    h.bucket_counts,
+                    h.sum,
+                    h.count,
+                    h.time
+                FROM metrics_info i
+                JOIN metrics_histograms h ON i.id = h.metric_id
+                WHERE i.name = $1
+                  AND i.attributes @> $2::jsonb
+                  AND i.type = 'histogram'
+                  AND h.time >= to_timestamp($3)
+                  AND h.time <= to_timestamp($4)
+                ORDER BY i.id, h.time DESC
+                """,
+                metric_name,
+                labels_json,
+                start_ts,
+                end_ts,
+            )
+
+        result = []
+        for row in rows:
+            if not row['bucket_counts'] or not row['explicit_bounds']:
+                continue
+
+            result.append(
+                (
+                    row['name'],
+                    self._parse_attributes(row['attributes']),
+                    list(row['bucket_counts']),
+                    float(row['sum']),
+                    int(row['count']),
+                    list(row['explicit_bounds']),
+                    row['time'],
+                )
+            )
+
+        return result
+
+    async def fetch_histogram_series_for_range(
+        self,
+        metric_name: str,
+        component: str | None,
+        labels: dict[str, str],
+        start_ts: float,
+        end_ts: float,
+        step_seconds: int,
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        labels_json = json.dumps(labels) if labels else '{}'
+        step_interval = timedelta(seconds=step_seconds)
+
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    i.name AS base_name,
+                    i.attributes,
+                    i.explicit_bounds,
+                    h.bucket_counts,
+                    h.sum,
+                    h.count,
+                    time_bucket($5::interval, h.time) AS bucket_time
+                FROM metrics_info i
+                JOIN metrics_histograms h ON i.id = h.metric_id
+                WHERE i.name = $1
+                  AND i.attributes @> $2::jsonb
+                  AND i.type = 'histogram'
+                  AND h.time >= to_timestamp($3)
+                  AND h.time <= to_timestamp($4)
+                ORDER BY h.time ASC
+                """,
+                metric_name,
+                labels_json,
+                start_ts,
+                end_ts,
+                step_interval,
+            )
+
+        result = []
+        for row in rows:
+            if not row['bucket_counts'] or not row['explicit_bounds']:
+                continue
+
+            attrs = self._parse_attributes(row['attributes'])
+            bounds = list(row['explicit_bounds'])
+            bucket_counts = list(row['bucket_counts'])
+
+            if component is None or component == 'bucket':
+                cumulative = 0
+                for i, bound in enumerate(bounds):
+                    if i < len(bucket_counts):
+                        cumulative += bucket_counts[i]
+                        bucket_attrs = attrs.copy()
+                        bucket_attrs['le'] = str(bound)
+                        result.append(
+                            (
+                                f'{row["base_name"]}_bucket',
+                                bucket_attrs,
+                                float(cumulative),
+                                row['bucket_time'],
+                            )
+                        )
+
+                bucket_attrs = attrs.copy()
+                bucket_attrs['le'] = '+Inf'
+                result.append(
+                    (
+                        f'{row["base_name"]}_bucket',
+                        bucket_attrs,
+                        float(row['count']),
+                        row['bucket_time'],
+                    )
+                )
+
+            if component is None or component == 'sum':
+                result.append(
+                    (
+                        f'{row["base_name"]}_sum',
+                        attrs,
+                        float(row['sum']),
+                        row['bucket_time'],
+                    )
+                )
+
+            if component is None or component == 'count':
+                result.append(
+                    (
+                        f'{row["base_name"]}_count',
+                        attrs,
+                        float(row['count']),
+                        row['bucket_time'],
+                    )
+                )
+
+        return result
+
+    async def is_histogram_metric(self, metric_name: str) -> bool:
+        try:
+            async with self._get_connection() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT 1 FROM metrics_info
+                    WHERE name = $1 AND type = 'histogram'
+                    LIMIT 1
+                    """,
+                    metric_name,
+                )
+                return row is not None
+        except Exception as e:
+            logger.warning(
+                f'Error checking if metric is histogram: {e}',
+                extra={'metric_name': metric_name},
+            )
+            return False
+
 
 timescale_db = TimescaleDB()

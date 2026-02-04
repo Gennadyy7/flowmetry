@@ -54,6 +54,25 @@ class PrometheusService:
                 )
             )
 
+        base_name, component = cls._extract_histogram_components(
+            parsed.metric_name or ''
+        )
+
+        if base_name and await timescale_db.is_histogram_metric(base_name):
+            series = await timescale_db.fetch_histogram_series_for_range(
+                metric_name=base_name,
+                component=component,
+                labels=parsed.labels,
+                start_ts=timestamp - 60,
+                end_ts=timestamp,
+                step_seconds=60,
+            )
+            return cls._generate_instant_query_response(
+                parsed=parsed,
+                series=series,
+                timestamp=datetime.fromtimestamp(timestamp, tz=UTC),
+            )
+
         timestamp_dt = datetime.fromtimestamp(timestamp, tz=UTC)
 
         if parsed.metric_name == 'up':
@@ -116,8 +135,12 @@ class PrometheusService:
         timestamp: datetime | None = None,
     ) -> InstantQueryResponse:
         result_items = []
-        for _name, attrs, value, ts in series:
-            effective_name = parsed.get_effective_metric_name()
+        for name, attrs, value, ts in series:
+            if '_bucket' in name or '_sum' in name or '_count' in name:
+                effective_name = name
+            else:
+                effective_name = parsed.get_effective_metric_name()
+
             result_items.append(
                 InstantResultItem(
                     metric=MetricLabels(**{'__name__': effective_name, **attrs}),
@@ -167,6 +190,24 @@ class PrometheusService:
                 extra={'query': query, 'scalar_value': parsed.scalar_value},
             )
             raise ValueError('Invalid expression type "scalar" for range query')
+
+        base_name, component = cls._extract_histogram_components(
+            parsed.metric_name or ''
+        )
+
+        if base_name and await timescale_db.is_histogram_metric(base_name):
+            series = await timescale_db.fetch_histogram_series_for_range(
+                metric_name=base_name,
+                component=component,
+                labels=parsed.labels,
+                start_ts=start,
+                end_ts=end,
+                step_seconds=step,
+            )
+            return cls._generate_query_range_response(
+                parsed=parsed,
+                series=series,
+            )
 
         if parsed.metric_name == 'up':
             series = []
@@ -333,3 +374,177 @@ class PrometheusService:
             result.append((op, attrs, agg_value, timestamp))
 
         return result
+
+    @classmethod
+    async def _handle_histogram_quantile(
+        cls,
+        parsed: ParsedQuery,
+        timestamp: float,
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        if parsed.quantile is None or parsed.histogram_metric is None:
+            return []
+
+        histogram_data = await timescale_db.fetch_histogram_data(
+            metric_name=parsed.histogram_metric,
+            labels=parsed.labels,
+            start_ts=timestamp - 300,
+            end_ts=timestamp,
+        )
+
+        result = []
+        timestamp_dt = datetime.fromtimestamp(timestamp, tz=UTC)
+
+        for (
+            _name,
+            attrs,
+            bucket_counts,
+            _sum_val,
+            count_val,
+            bounds,
+            _,
+        ) in histogram_data:
+            quantile_value = cls._calculate_histogram_quantile(
+                quantile=parsed.quantile,
+                bucket_counts=bucket_counts,
+                bounds=bounds,
+                total_count=count_val,
+            )
+
+            result.append(
+                (
+                    parsed.histogram_metric,
+                    attrs,
+                    quantile_value,
+                    timestamp_dt,
+                )
+            )
+
+        return result
+
+    @classmethod
+    async def _handle_histogram_quantile_range(
+        cls,
+        parsed: ParsedQuery,
+        start: float,
+        end: float,
+        step: int,
+    ) -> list[tuple[str, dict[str, Any], float, datetime]]:
+        if parsed.quantile is None or parsed.histogram_metric is None:
+            return []
+
+        histogram_data = await timescale_db.fetch_histogram_data(
+            metric_name=parsed.histogram_metric,
+            labels=parsed.labels,
+            start_ts=start,
+            end_ts=end,
+        )
+
+        result = []
+        current_ts = start
+
+        data_by_time: dict[
+            datetime,
+            list[tuple[str, dict[str, Any], list[int], float, int, list[float]]],
+        ] = {}
+        for (
+            name,
+            attrs,
+            bucket_counts,
+            sum_val,
+            count_val,
+            bounds,
+            time,
+        ) in histogram_data:
+            data_by_time.setdefault(time, []).append(
+                (name, attrs, bucket_counts, sum_val, count_val, bounds)
+            )
+
+        while current_ts <= end:
+            current_dt = datetime.fromtimestamp(current_ts, tz=UTC)
+
+            closest_time = None
+            min_diff = float('inf')
+
+            for time_key in data_by_time.keys():
+                diff = abs((time_key - current_dt).total_seconds())
+                if diff < min_diff and diff < step:
+                    min_diff = diff
+                    closest_time = time_key
+
+            if closest_time:
+                for (
+                    _name,
+                    attrs,
+                    bucket_counts,
+                    _sum_val,
+                    count_val,
+                    bounds,
+                ) in data_by_time[closest_time]:
+                    quantile_value = cls._calculate_histogram_quantile(
+                        quantile=parsed.quantile,
+                        bucket_counts=bucket_counts,
+                        bounds=bounds,
+                        total_count=count_val,
+                    )
+                    result.append(
+                        (
+                            parsed.histogram_metric,
+                            attrs,
+                            quantile_value,
+                            current_dt,
+                        )
+                    )
+
+            current_ts += step
+
+        return result
+
+    @staticmethod
+    def _calculate_histogram_quantile(
+        quantile: float,
+        bucket_counts: list[int],
+        bounds: list[float],
+        total_count: int,
+    ) -> float:
+        if total_count == 0 or quantile < 0 or quantile > 1:
+            return 0.0
+
+        cumulative_counts = []
+        cumulative = 0
+        for count in bucket_counts:
+            cumulative += count
+            cumulative_counts.append(cumulative)
+
+        target_count = quantile * total_count
+
+        bucket_index = None
+        for i, cum_count in enumerate(cumulative_counts):
+            if cum_count >= target_count:
+                bucket_index = i
+                break
+
+        if bucket_index is None:
+            return bounds[-1] if bounds else 0.0
+
+        lower_bound = 0.0 if bucket_index == 0 else bounds[bucket_index - 1]
+        upper_bound = bounds[bucket_index]
+
+        bucket_count = bucket_counts[bucket_index]
+
+        count_below = 0 if bucket_index == 0 else cumulative_counts[bucket_index - 1]
+
+        if bucket_count > 0:
+            fraction = (target_count - count_below) / bucket_count
+            return lower_bound + (upper_bound - lower_bound) * fraction
+        else:
+            return lower_bound
+
+    @staticmethod
+    def _extract_histogram_components(metric_name: str) -> tuple[str, str | None]:
+        if metric_name.endswith('_bucket'):
+            return metric_name[:-7], 'bucket'
+        elif metric_name.endswith('_sum'):
+            return metric_name[:-4], 'sum'
+        elif metric_name.endswith('_count'):
+            return metric_name[:-6], 'count'
+        return metric_name, None
