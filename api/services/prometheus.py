@@ -461,39 +461,53 @@ class PrometheusService:
         processed_count: float = float(count_val)
 
         if need_rate and len(histogram_data) >= 2:
-            prev_entry = histogram_data[-2]
-            prev_bucket_counts = prev_entry[2]
-            prev_count = prev_entry[4]
-            prev_time = prev_entry[6]
+            prev_entry = None
+            for i in range(len(histogram_data) - 2, -1, -1):
+                candidate = histogram_data[i]
+                if candidate[6] < time:
+                    prev_entry = candidate
+                    break
 
-            time_diff = (time - prev_time).total_seconds()
+            if prev_entry:
+                prev_bucket_counts = prev_entry[2]
+                prev_count = prev_entry[4]
+                prev_time = prev_entry[6]
 
-            if time_diff > 0:
-                bucket_deltas: list[float] = [
-                    max(0.0, float(curr - prev))
-                    for curr, prev in zip(
-                        bucket_counts, prev_bucket_counts, strict=False
+                time_diff = (time - prev_time).total_seconds()
+
+                if time_diff > 0:
+                    bucket_deltas: list[float] = [
+                        max(0.0, float(curr - prev))
+                        for curr, prev in zip(
+                            bucket_counts, prev_bucket_counts, strict=False
+                        )
+                    ]
+
+                    count_delta: float = max(0.0, float(count_val - prev_count))
+
+                    processed_bucket_counts = [
+                        delta / time_diff for delta in bucket_deltas
+                    ]
+                    processed_count = count_delta / time_diff
+
+                    logger.debug(
+                        'Computed histogram rate for quantile',
+                        extra={
+                            'time_diff': time_diff,
+                            'count_delta': count_delta,
+                            'processed_count': processed_count,
+                            'sample_buckets': processed_bucket_counts[:3],
+                        },
                     )
-                ]
-
-                count_delta: float = max(0.0, float(count_val - prev_count))
-
-                processed_bucket_counts = [delta / time_diff for delta in bucket_deltas]
-                processed_count = count_delta / time_diff
-
-                logger.debug(
-                    'Computed histogram rate for quantile',
-                    extra={
-                        'time_diff': time_diff,
-                        'count_delta': count_delta,
-                        'processed_count': processed_count,
-                        'sample_buckets': processed_bucket_counts[:3],
-                    },
-                )
+                else:
+                    logger.warning(
+                        'Time difference is zero or negative after deduplication',
+                        extra={'time_diff': time_diff},
+                    )
             else:
                 logger.warning(
-                    'Time difference is zero or negative, cannot compute rate',
-                    extra={'time_diff': time_diff},
+                    'No previous point with different timestamp found for rate calculation',
+                    extra={'available_points': len(histogram_data)},
                 )
 
         quantile_value = cls._calculate_histogram_quantile(
@@ -605,10 +619,9 @@ class PrometheusService:
 
                     if need_rate:
                         prev_time = None
-                        for t in sorted_times:
+                        for t in reversed(sorted_times):
                             if t < closest_time:
                                 prev_time = t
-                            else:
                                 break
 
                         if prev_time and prev_time in data_by_time:
