@@ -196,7 +196,7 @@ class TimescaleDB:
             return await self._fetch_counter_raw_aggregated(
                 metric_name, labels, start_ts, end_ts, step_seconds
             )
-        else:  # histogram — not supported in raw yet
+        else:
             return []
 
     async def _get_metric_type(
