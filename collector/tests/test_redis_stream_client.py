@@ -1,21 +1,9 @@
 import asyncio
 import json
-import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from redis.exceptions import ConnectionError, TimeoutError
-
-os.environ['API_HOST'] = 'localhost'
-os.environ['API_PORT'] = '8000'
-os.environ['API_RELOAD'] = 'False'
-os.environ['REDIS_HOST'] = 'localhost'
-os.environ['REDIS_PORT'] = '6379'
-os.environ['REDIS_STREAM_NAME'] = 'test_metrics'
-os.environ['SERVICE_NAME'] = 'flowmetry-collector-test'
-os.environ['SERVICE_VERSION'] = '0.1.0'
-os.environ['LOG_LEVEL'] = 'DEBUG'
-os.environ['LOG_FORMAT'] = 'TEXT'
 
 from collector.redis_stream_client import RedisStreamClient
 

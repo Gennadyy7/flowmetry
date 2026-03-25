@@ -47,6 +47,7 @@ pytest-cov = "^7.0.0"
 pytest-asyncio = "^1.2.0"
 types-protobuf = "^6.32.1.20250918"
 asyncpg-stubs = "^0.30.2"
+pytest-env = ">=1.1.0,<1.6.0"
 
 [tool.ruff]
 target-version = "py312"
@@ -87,6 +88,18 @@ testpaths = [
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+env = [
+    "API_HOST=localhost",
+    "API_PORT=8000",
+    "API_RELOAD=False",
+    "REDIS_HOST=localhost",
+    "REDIS_PORT=6379",
+    "REDIS_STREAM_NAME=test_metrics",
+    "SERVICE_NAME=flowmetry-collector-test",
+    "SERVICE_VERSION=0.1.0",
+    "LOG_LEVEL=DEBUG",
+    "LOG_FORMAT=TEXT",
+]
 addopts = [
     "--strict-markers",
     "--tb=short",

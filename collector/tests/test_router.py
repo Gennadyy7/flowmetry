@@ -1,20 +1,7 @@
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-os.environ['API_HOST'] = 'localhost'
-os.environ['API_PORT'] = '8000'
-os.environ['API_RELOAD'] = 'False'
-os.environ['REDIS_HOST'] = 'localhost'
-os.environ['REDIS_PORT'] = '6379'
-os.environ['REDIS_STREAM_NAME'] = 'test_metrics'
-os.environ['SERVICE_NAME'] = 'flowmetry-collector-test'
-os.environ['SERVICE_VERSION'] = '0.1.0'
-os.environ['LOG_LEVEL'] = 'DEBUG'
-os.environ['LOG_FORMAT'] = 'TEXT'
-
 from fastapi.testclient import TestClient
+import pytest
 
 from collector.main import app
 from collector.otlp.schemas import (
