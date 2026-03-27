@@ -62,6 +62,7 @@ class RedisStreamClient:
             self._running = True
         except Exception:
             logger.exception('Failed to start Redis stream client')
+            self._redis = None  # reset on error
             raise
 
     async def stop(self) -> None:
