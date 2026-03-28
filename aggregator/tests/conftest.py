@@ -9,12 +9,9 @@ from aggregator.redis_stream_client import RedisStreamClient
 from aggregator.schemas import MetricPoint, MetricType
 from aggregator.worker import AggregationWorker
 
-# ==================== METRIC FIXTURES ====================
-
 
 @pytest.fixture
 def sample_metric_point_counter() -> MetricPoint:
-    """Стандартная метрика типа COUNTER для тестов."""
     return MetricPoint(
         name='test_counter',
         description='Test counter metric',
@@ -28,7 +25,6 @@ def sample_metric_point_counter() -> MetricPoint:
 
 @pytest.fixture
 def sample_metric_point_gauge() -> MetricPoint:
-    """Стандартная метрика типа GAUGE для тестов."""
     return MetricPoint(
         name='test_gauge',
         description='Test gauge metric',
@@ -42,7 +38,6 @@ def sample_metric_point_gauge() -> MetricPoint:
 
 @pytest.fixture
 def sample_metric_point_histogram() -> MetricPoint:
-    """Стандартная метрика типа HISTOGRAM для тестов."""
     return MetricPoint(
         name='test_histogram',
         description='Test histogram metric',
@@ -57,12 +52,8 @@ def sample_metric_point_histogram() -> MetricPoint:
     )
 
 
-# ==================== MOCK FIXTURES ====================
-
-
 @pytest.fixture
 def mock_consumer() -> AsyncMock:
-    """Мок RedisStreamClient для worker тестов."""
     consumer = AsyncMock(spec=RedisStreamClient)
     consumer.ensure_consumer_group.return_value = None
     return consumer
@@ -70,7 +61,6 @@ def mock_consumer() -> AsyncMock:
 
 @pytest.fixture
 def mock_db() -> AsyncMock:
-    """Мок TimescaleDB для worker тестов."""
     db = AsyncMock(spec=TimescaleDB)
     db.insert_metric.return_value = None
     return db
@@ -78,13 +68,11 @@ def mock_db() -> AsyncMock:
 
 @pytest.fixture
 def worker(mock_consumer: AsyncMock, mock_db: AsyncMock) -> AggregationWorker:
-    """Worker с замоканными зависимостями."""
     return AggregationWorker(mock_consumer, mock_db)
 
 
 @pytest.fixture
 def mock_redis() -> AsyncMock:
-    """Мок Redis клиента с базовыми методами."""
     redis_mock = AsyncMock()
     redis_mock.ping.return_value = True
     redis_mock.xgroup_create.return_value = None
@@ -98,7 +86,6 @@ def mock_redis() -> AsyncMock:
 
 @pytest.fixture
 def sample_redis_messages() -> list[tuple[str, dict[bytes, bytes]]]:
-    """Пример Redis сообщений для тестов."""
     messages = [
         (
             '1640995200000-0',
@@ -136,60 +123,43 @@ def sample_redis_messages() -> list[tuple[str, dict[bytes, bytes]]]:
     return messages
 
 
-# ==================== DOCKER FIXTURES ====================
-
-
 @pytest.fixture(scope='session')
 def docker_test_services() -> Generator[None, None, None]:
-    """Запускает тестовые Docker сервисы."""
     import subprocess
     import time
 
-    # Запускаем тестовые сервисы
     subprocess.run(
         ['docker-compose', '-f', 'docker-compose.test.yml', 'up', '-d'], check=True
     )
 
-    # Ждем запуска сервисов
     time.sleep(10)
 
     yield
 
-    # Останавливаем сервисы
     subprocess.run(
         ['docker-compose', '-f', 'docker-compose.test.yml', 'down'], check=True
     )
 
 
-# ==================== DATABASE FIXTURES ====================
-
-
 @pytest.fixture
 def timescale_db() -> TimescaleDB:
-    """Экземпляр TimescaleDB для тестов."""
     return TimescaleDB()
 
 
 @pytest.fixture
 def mock_pool() -> AsyncMock:
-    """Мок connection pool."""
     pool = AsyncMock()
     return pool
 
 
 @pytest.fixture
 def mock_connection() -> AsyncMock:
-    """Мок connection."""
     conn = AsyncMock()
     return conn
 
 
-# ==================== REDIS CLIENT FIXTURES ====================
-
-
 @pytest.fixture
 def redis_client() -> RedisStreamClient:
-    """RedisStreamClient для тестов."""
     return RedisStreamClient(
         stream_name='test_stream',
         host='localhost',

@@ -10,11 +10,7 @@ from aggregator.worker import AggregationWorker
 
 
 class TestIntegrationSimple:
-    """Упрощенные интеграционные тесты с реальными Docker сервисами."""
-
     async def test_redis_and_postgresql_connection(self) -> None:
-        """Тест подключения к обоим сервисам."""
-        # Тест Redis
         redis_client = Redis(
             host='localhost',
             port=6380,
@@ -25,7 +21,6 @@ class TestIntegrationSimple:
         await redis_client.ping()
         await redis_client.aclose()
 
-        # Тест PostgreSQL
         conn = await asyncpg.connect(
             host='localhost',
             port=5433,
@@ -42,8 +37,6 @@ class TestIntegrationSimple:
     async def test_timescaledb_with_real_data(
         self, sample_metric_point_counter: MetricPoint
     ) -> None:
-        """Тест TimescaleDB с реальными данными."""
-        # Создаем pool подключений
         pool = await asyncpg.create_pool(
             host='localhost',
             port=5433,
@@ -58,10 +51,8 @@ class TestIntegrationSimple:
             db = TimescaleDB()
             db._pool = pool
 
-            # Вставляем метрику
             await db.insert_metric(sample_metric_point_counter)
 
-            # Проверяем, что метрика была вставлена
             async with pool.acquire() as conn:
                 result = await conn.fetchrow(
                     """
@@ -83,7 +74,6 @@ class TestIntegrationSimple:
             await pool.close()
 
     async def test_redis_stream_client_basic(self) -> None:
-        """Базовый тест Redis Stream Client."""
         client = RedisStreamClient(
             stream_name='test_basic_stream',
             host='localhost',
@@ -102,10 +92,8 @@ class TestIntegrationSimple:
         )
 
         try:
-            # Запускаем клиент (создаст consumer group)
             await client.start()
 
-            # Добавляем сообщение в stream
             test_data = {
                 'name': 'test_basic_counter',
                 'description': 'Test basic counter',
@@ -122,7 +110,6 @@ class TestIntegrationSimple:
                 'test_basic_stream', {'data': json.dumps(test_data)}
             )
 
-            # Проверяем, что stream существует
             streams = await redis_client.xinfo_stream('test_basic_stream')
             assert streams['length'] >= 1
 
@@ -134,8 +121,6 @@ class TestIntegrationSimple:
     async def test_worker_components_integration(
         self, sample_metric_point_counter: MetricPoint
     ) -> None:
-        """Тест интеграции компонентов worker без бесконечных циклов."""
-        # Настраиваем DB
         db_pool = await asyncpg.create_pool(
             host='localhost',
             port=5433,
@@ -147,7 +132,6 @@ class TestIntegrationSimple:
         )
 
         try:
-            # Настраиваем Redis Stream Client
             redis_stream_client = RedisStreamClient(
                 stream_name='test_worker_stream',
                 host='localhost',
@@ -160,21 +144,16 @@ class TestIntegrationSimple:
 
             await redis_stream_client.start()
 
-            # Настраиваем DB
             db = TimescaleDB()
             db._pool = db_pool
 
-            # Создаем Worker
             worker = AggregationWorker(redis_stream_client, db)
 
-            # Проверяем, что worker инициализирован правильно
             assert worker.consumer is redis_stream_client
             assert worker.db is db
 
-            # Тестируем сохранение метрики напрямую
             await db.insert_metric(sample_metric_point_counter)
 
-            # Проверяем, что метрика сохранена
             async with db_pool.acquire() as conn:
                 result = await conn.fetchrow(
                     """
@@ -195,22 +174,19 @@ class TestIntegrationSimple:
             await db_pool.close()
 
     async def test_error_handling_with_real_services(self) -> None:
-        """Тест обработки ошибок с реальными сервисами."""
-        # Тест с неверными данными подключения
         with pytest.raises((RedisConnectionError, OSError)):
             bad_redis_client = Redis(
                 host='localhost',
-                port=9999,  # Неверный порт
+                port=9999,
                 db=0,
                 decode_responses=False,
             )
             await bad_redis_client.ping()
 
-        # Тест с неверными данными PostgreSQL
         with pytest.raises((ConnectionRefusedError, OSError)):
             bad_conn = await asyncpg.connect(
                 host='localhost',
-                port=9999,  # Неверный порт
+                port=9999,
                 user='test_user',
                 password='test_password',
                 database='flowmetry_test_db',
@@ -220,8 +196,6 @@ class TestIntegrationSimple:
     async def test_multiple_metrics_in_database(
         self, sample_metric_point_counter: MetricPoint
     ) -> None:
-        """Тест сохранения множества метрик в базе данных."""
-        # Создаем pool подключений
         pool = await asyncpg.create_pool(
             host='localhost',
             port=5433,
@@ -236,10 +210,9 @@ class TestIntegrationSimple:
             db = TimescaleDB()
             db._pool = pool
 
-            # Создаем несколько метрик с уникальными именами
             import time
 
-            timestamp = int(time.time() * 1000000000)  # Уникальный timestamp
+            timestamp = int(time.time() * 1000000000)
 
             metrics = [
                 MetricPoint(
@@ -274,13 +247,10 @@ class TestIntegrationSimple:
                 ),
             ]
 
-            # Вставляем все метрики
             for metric in metrics:
                 await db.insert_metric(metric)
 
-            # Проверяем, что все метрики сохранены
             async with pool.acquire() as conn:
-                # Проверяем counter и gauge
                 values_result = await conn.fetch(
                     """
                     SELECT mi.name, mv.value
@@ -295,7 +265,6 @@ class TestIntegrationSimple:
 
                 assert len(values_result) == 2
 
-                # Проверяем histogram
                 histogram_result = await conn.fetchrow(
                     """
                     SELECT mh.sum, mh.count, mh.bucket_counts

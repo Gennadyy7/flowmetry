@@ -6,8 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 class HealthServer:
-    """Minimal async HTTP server for health checks."""
-
     def __init__(self, host: str, port: int) -> None:
         self.host = host
         self.port = port

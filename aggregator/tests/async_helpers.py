@@ -5,8 +5,6 @@ T = TypeVar('T')
 
 
 class AsyncIteratorMock(Generic[T]):
-    """Правильный async iterator mock для тестов."""
-
     def __init__(self, items: list[T] | None = None):
         self.items = items or []
         self.index = 0
@@ -23,8 +21,6 @@ class AsyncIteratorMock(Generic[T]):
 
 
 class EmptyAsyncIterator(Generic[T]):
-    """Пустой async iterator для тестов."""
-
     def __aiter__(self) -> AsyncIterator[T]:
         return self
 
@@ -33,7 +29,6 @@ class EmptyAsyncIterator(Generic[T]):
 
 
 def create_async_iterator[T](items: list[T] | None = None) -> AsyncIterator[T]:
-    """Создает async iterator для тестов."""
     if items is None or len(items) == 0:
         return EmptyAsyncIterator()
     return AsyncIteratorMock(items)

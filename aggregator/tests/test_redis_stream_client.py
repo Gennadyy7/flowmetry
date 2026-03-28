@@ -245,7 +245,6 @@ class TestRedisStreamClient:
         client._redis = mock_redis
         client._running = True
 
-        # Настройка моков для pending entries и claimed messages
         pending_entries = [
             {
                 'message_id': '1640995200000-0',
@@ -382,7 +381,6 @@ class TestRedisStreamClient:
             messages.append((msg_id, point))
 
         assert len(messages) == 0
-        # Проверяем, что пустое сообщение было ack'нуто
         mock_redis.xack.assert_called_once_with(
             'test_stream', 'test_group', '1640995200000-0'
         )
