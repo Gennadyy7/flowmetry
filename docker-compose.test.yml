@@ -1,0 +1,35 @@
+services:
+  timescaledb_test:
+    image: timescale/timescaledb:latest-pg17
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: flowmetry_test_db
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - ./timescaledb/init:/docker-entrypoint-initdb.d
+      - timescaledb_test_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U test_user -d flowmetry_test_db" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  redis_test:
+    image: redis:7.2-alpine
+    ports:
+      - "6380:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  timescaledb_test_data:

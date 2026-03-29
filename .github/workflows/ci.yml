@@ -9,9 +9,20 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    
+    services:
+      docker:
+        image: docker:24-dind
+        options: --privileged --shm-size=2g
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v2
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -24,7 +35,25 @@ jobs:
           poetry config virtualenvs.in-project true
 
       - name: Install dependencies
-        run: poetry install --with dev
+        run: |
+          poetry lock
+          poetry install --with dev
+
+      - name: Start test services
+        run: |
+          docker compose -f docker-compose.test.yml up -d
+          docker compose -f docker-compose.test.yml ps
+          
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for TimescaleDB..."
+          timeout 120 bash -c 'until docker ps --filter "name=timescaledb_test" --filter "health=healthy" | grep -q "healthy"; do sleep 5; done'
+          
+          echo "Waiting for Redis..."
+          timeout 120 bash -c 'until docker ps --filter "name=redis_test" --filter "health=healthy" | grep -q "healthy"; do sleep 5; done'
+          
+          echo "Services are ready!"
+          docker compose -f docker-compose.test.yml ps
 
       - name: Run Ruff (linting)
         run: poetry run ruff check .
@@ -35,5 +64,10 @@ jobs:
       - name: Run MyPy
         run: poetry run mypy
 
-      - name: Run tests with coverage
+      - name: Run tests
         run: poetry run pytest
+
+      - name: Stop test services
+        if: always()
+        run: |
+          docker compose -f docker-compose.test.yml down -v --remove-orphans
