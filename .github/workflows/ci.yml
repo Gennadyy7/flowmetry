@@ -40,16 +40,18 @@ jobs:
       - name: Start test services
         run: |
           docker compose -f docker-compose.test.yml up -d
+          docker compose -f docker-compose.test.yml ps
           
       - name: Wait for services to be ready
         run: |
           echo "Waiting for TimescaleDB..."
-          timeout 60 bash -c 'until docker exec timescaledb_test pg_isready -U test_user -d flowmetry_test_db; do sleep 2; done'
+          timeout 120 bash -c 'until docker compose -f docker-compose.test.yml ps timescaledb_test | grep -q "healthy"; do sleep 5; done'
           
           echo "Waiting for Redis..."
-          timeout 60 bash -c 'until docker exec redis_test redis-cli ping | grep -q PONG; do sleep 2; done'
+          timeout 120 bash -c 'until docker compose -f docker-compose.test.yml ps redis_test | grep -q "healthy"; do sleep 5; done'
           
           echo "Services are ready!"
+          docker compose -f docker-compose.test.yml ps
 
       - name: Run Ruff (linting)
         run: poetry run ruff check .
