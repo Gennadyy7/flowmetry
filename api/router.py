@@ -21,11 +21,13 @@ router = APIRouter(prefix='/api/v1')
 @router.get('/query', response_model=InstantQueryResponse)
 @router.post('/query', response_model=InstantQueryResponse)
 async def instant_query(
-    query: Annotated[str | None, Form(..., example='up')] = None,
+    query: Annotated[str | None, Form(..., examples={'up': {'value': 'up'}})] = None,
     time: Annotated[
         float | None, Form(default_factory=lambda: datetime.now().timestamp())
     ] = None,
-    query_get: Annotated[str | None, Query(alias='query', example='up')] = None,
+    query_get: Annotated[
+        str | None, Query(alias='query', examples={'up': {'value': 'up'}})
+    ] = None,
     time_get: Annotated[float | None, Query(alias='time')] = None,
 ) -> InstantQueryResponse:
     resolved_query = query_get if query_get is not None else query
@@ -54,7 +56,10 @@ async def instant_query(
 @router.post('/query_range', response_model=QueryRangeResponse)
 async def query_range(
     query: Annotated[
-        str | None, Form(..., example='http_requests_total{job="api"}')
+        str | None,
+        Form(
+            ..., examples={'http_requests': {'value': 'http_requests_total{job="api"}'}}
+        ),
     ] = None,
     start: Annotated[float | None, Form(...)] = None,
     end: Annotated[float | None, Form(...)] = None,
@@ -117,7 +122,7 @@ async def get_label_names() -> LabelNamesResponse:
 
 @router.get('/label/{label_name}/values', response_model=LabelValuesResponse)
 async def get_label_values(
-    label_name: Annotated[str, Path(..., example='job')],
+    label_name: Annotated[str, Path(..., examples={'job': {'value': 'job'}})],
 ) -> LabelValuesResponse:
     try:
         return await PrometheusService.get_label_values(label_name)
