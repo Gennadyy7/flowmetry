@@ -3,6 +3,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Form, HTTPException, Path, Query
+from fastapi.openapi.models import Example
 
 from api.schemas import (
     BuildInfoResponse,
@@ -21,12 +22,34 @@ router = APIRouter(prefix='/api/v1')
 @router.get('/query', response_model=InstantQueryResponse)
 @router.post('/query', response_model=InstantQueryResponse)
 async def instant_query(
-    query: Annotated[str | None, Form(..., examples={'up': {'value': 'up'}})] = None,
+    query: Annotated[
+        str | None,
+        Form(
+            ...,
+            openapi_examples={
+                'simple_metric': Example(
+                    summary='Simple metric query',
+                    description='Query for a simple metric name',
+                    value='up',
+                )
+            },
+        ),
+    ] = None,
     time: Annotated[
         float | None, Form(default_factory=lambda: datetime.now().timestamp())
     ] = None,
     query_get: Annotated[
-        str | None, Query(alias='query', examples={'up': {'value': 'up'}})
+        str | None,
+        Query(
+            alias='query',
+            openapi_examples={
+                'simple_metric': Example(
+                    summary='Simple metric query',
+                    description='Query for a simple metric name',
+                    value='up',
+                )
+            },
+        ),
     ] = None,
     time_get: Annotated[float | None, Query(alias='time')] = None,
 ) -> InstantQueryResponse:
@@ -58,7 +81,14 @@ async def query_range(
     query: Annotated[
         str | None,
         Form(
-            ..., examples={'http_requests': {'value': 'http_requests_total{job="api"}'}}
+            ...,
+            openapi_examples={
+                'metric_with_labels': Example(
+                    summary='Metric with labels',
+                    description='Query for a metric with job label',
+                    value='http_requests_total{job="api"}',
+                )
+            },
         ),
     ] = None,
     start: Annotated[float | None, Form(...)] = None,
@@ -122,7 +152,19 @@ async def get_label_names() -> LabelNamesResponse:
 
 @router.get('/label/{label_name}/values', response_model=LabelValuesResponse)
 async def get_label_values(
-    label_name: Annotated[str, Path(..., examples={'job': {'value': 'job'}})],
+    label_name: Annotated[
+        str,
+        Path(
+            ...,
+            openapi_examples={
+                'job_label': Example(
+                    summary='Job label',
+                    description='Example for the job label name',
+                    value='job',
+                )
+            },
+        ),
+    ],
 ) -> LabelValuesResponse:
     try:
         return await PrometheusService.get_label_values(label_name)
