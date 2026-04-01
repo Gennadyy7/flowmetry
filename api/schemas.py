@@ -14,7 +14,11 @@ class MetricLabels(BaseModel):
     model_config = ConfigDict(extra='allow')
 
     def to_dict(self) -> dict[str, str]:
-        return {k: str(v) for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {
+            k: str(v)
+            for k, v in self.model_dump().items()
+            if not k.startswith('_') or k == '__name__'
+        }
 
 
 class InstantResultItem(BaseModel):
@@ -88,7 +92,11 @@ class SeriesItem(BaseModel):
     model_config = ConfigDict(extra='allow')
 
     def to_dict(self) -> dict[str, str]:
-        return {k: str(v) for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {
+            k: str(v)
+            for k, v in self.model_dump().items()
+            if not k.startswith('_') or k == '__name__'
+        }
 
 
 class SeriesResponse(BaseModel):
