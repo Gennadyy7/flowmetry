@@ -2,6 +2,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from api.promql_parser import ParsedQuery
+from api.schemas import (
+    LabelNamesResponse,
+    LabelValuesResponse,
+    SeriesResponse,
+)
 from api.services.prometheus import PrometheusService
 
 
@@ -16,6 +22,101 @@ class TestPrometheusService:
         assert result.data.buildUser == 'flowmetry'
         assert result.data.goVersion == 'go1.21'
         assert result.data.platform == 'linux/amd64'
+
+    @patch('api.services.prometheus.parser')
+    async def test_handle_instant_query_parse_error(
+        self, mock_parser: AsyncMock
+    ) -> None:
+        mock_parser.parse.side_effect = ValueError('Invalid query')
+
+        with pytest.raises(ValueError, match='Invalid query'):
+            await PrometheusService.handle_instant_query('invalid_query', 1234567890)
+
+    @patch('api.services.prometheus.timescale_db')
+    @patch('api.services.prometheus.parser')
+    async def test_handle_instant_query_success(
+        self, mock_parser: AsyncMock, mock_db: AsyncMock
+    ) -> None:
+        mock_parsed = ParsedQuery(raw='test_query', metric_name='test_metric')
+        mock_parser.parse.return_value = mock_parsed
+        mock_db.query_instant = AsyncMock(return_value=[])
+        mock_db.is_histogram_metric = AsyncMock(return_value=False)
+        mock_db.fetch_metric_instant = AsyncMock(return_value=[])
+
+        result = await PrometheusService.handle_instant_query('test_query', 1234567890)
+
+        assert result.data.result == []
+
+    @patch('api.services.prometheus.timescale_db')
+    @patch('api.services.prometheus.parser')
+    async def test_handle_range_query_success(
+        self, mock_parser: AsyncMock, mock_db: AsyncMock
+    ) -> None:
+        mock_parsed = ParsedQuery(raw='test_query', metric_name='test_metric')
+        mock_parser.parse.return_value = mock_parsed
+        mock_db.query_range = AsyncMock(return_value=[])
+        mock_db.is_histogram_metric = AsyncMock(return_value=False)
+        mock_db.fetch_timeseries_for_range = AsyncMock(return_value=[])
+
+        result = await PrometheusService.handle_range_query(
+            'test_query', 1234567890, 1234567990, 60
+        )
+
+        assert result.data.result == []
+
+    @patch('api.services.prometheus.parser')
+    async def test_handle_range_query_parse_error(self, mock_parser: AsyncMock) -> None:
+        mock_parser.parse.side_effect = ValueError('Invalid query')
+
+        with pytest.raises(ValueError, match='Invalid query'):
+            await PrometheusService.handle_range_query(
+                'invalid_query', 1234567890, 1234567990, 60
+            )
+
+    @patch('api.services.prometheus.timescale_db')
+    async def test_get_series_success(self, mock_db: AsyncMock) -> None:
+        mock_db.fetch_series = AsyncMock(
+            return_value=[{'__name__': 'test_metric', 'label': 'value'}]
+        )
+
+        result = await PrometheusService.get_series(['test_metric'])
+
+        assert isinstance(result, SeriesResponse)
+        assert len(result.data) == 1
+        assert result.data[0] == {'__name__': 'test_metric', 'label': 'value'}
+        mock_db.fetch_series.assert_called_once_with(matchers=['test_metric'])
+
+    @patch('api.services.prometheus.timescale_db')
+    async def test_get_series_empty(self, mock_db: AsyncMock) -> None:
+        mock_db.fetch_series = AsyncMock(return_value=[])
+
+        result = await PrometheusService.get_series([])
+
+        assert isinstance(result, SeriesResponse)
+        assert len(result.data) == 0
+        mock_db.fetch_series.assert_called_once_with(matchers=[])
+
+    @patch('api.services.prometheus.timescale_db')
+    async def test_get_label_names_success(self, mock_db: AsyncMock) -> None:
+        mock_db.fetch_all_label_names = AsyncMock(
+            return_value=['__name__', 'job', 'instance']
+        )
+
+        result = await PrometheusService.get_label_names()
+
+        assert isinstance(result, LabelNamesResponse)
+        assert result.data == ['__name__', 'job', 'instance']
+        mock_db.fetch_all_label_names.assert_called_once()
+
+    @patch('api.services.prometheus.timescale_db')
+    async def test_get_label_values_success(self, mock_db: AsyncMock) -> None:
+        mock_db.fetch_label_values = AsyncMock(return_value=['value1', 'value2'])
+
+        result = await PrometheusService.get_label_values('job')
+
+        assert isinstance(result, LabelValuesResponse)
+        assert result.data == ['value1', 'value2']
+        mock_db.fetch_label_values.assert_called_once_with('job')
 
     async def test_handle_instant_query_simple_metric(self) -> None:
         from api.db import timescale_db

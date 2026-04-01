@@ -18,6 +18,18 @@ class TestAggregationWorker:
         worker.stop()
         assert worker._running is False
 
+    async def test_worker_start_calls_ensure_consumer_group(self) -> None:
+        mock_consumer = AsyncMock()
+        mock_db = AsyncMock()
+
+        worker = AggregationWorker(mock_consumer, mock_db)
+
+        # Mock the while loop to stop immediately
+        with patch.object(worker, '_running', False):
+            await worker.start()
+
+        mock_consumer.ensure_consumer_group.assert_called_once()
+
     def test_worker_stop_multiple_calls(self, worker: AggregationWorker) -> None:
         worker.stop()
         worker.stop()
