@@ -405,8 +405,8 @@
             "uid": "ffcu0vc0za96oe"
           },
           "editorMode": "code",
-          "expr": "rate(http_requests_total[5m])",
-          "legendFormat": "{{method}} {{path}}",
+          "expr": "sum(rate(http_requests_total[5m])) by (method)",
+          "legendFormat": "{{method}}",
           "range": true,
           "refId": "A"
         }
@@ -511,8 +511,8 @@
             "uid": "ffcu0vc0za96oe"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, http_request_duration_seconds_bucket)",
-          "legendFormat": "95th percentile",
+          "expr": "histogram_quantile(0.95, sum(http_request_duration_seconds_bucket{method=\"GET\"}))",
+          "legendFormat": "95th percentile (GET)",
           "range": true,
           "refId": "B"
         },
@@ -522,10 +522,32 @@
             "uid": "ffcu0vc0za96oe"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, http_request_duration_seconds_bucket)",
-          "legendFormat": "99th percentile",
+          "expr": "histogram_quantile(0.95, sum(http_request_duration_seconds_bucket{method=\"POST\"}))",
+          "legendFormat": "95th percentile (POST)",
           "range": true,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ffcu0vc0za96oe"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum(http_request_duration_seconds_bucket{method=\"GET\"}))",
+          "legendFormat": "99th percentile (GET)",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ffcu0vc0za96oe"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum(http_request_duration_seconds_bucket{method=\"POST\"}))",
+          "legendFormat": "99th percentile (POST)",
+          "range": true,
+          "refId": "E"
         }
       ],
       "title": "HTTP Request Duration",
@@ -617,7 +639,7 @@
             "uid": "ffcu0vc0za96oe"
           },
           "editorMode": "code",
-          "expr": "rate(http_errors_total[5m])",
+          "expr": "sum(rate(http_errors_total[5m])) by (error_type)",
           "legendFormat": "{{error_type}}",
           "range": true,
           "refId": "A"
