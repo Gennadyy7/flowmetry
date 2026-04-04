@@ -216,3 +216,87 @@ class TestPrometheusService:
         assert len(result.data.result) == 1
         assert result.data.result[0].metric.__name__ == '42'
         assert result.data.result[0].value == (1640995200.0, '42')
+
+    @patch('api.services.prometheus.timescale_db')
+    @patch('api.services.prometheus.parser')
+    async def test_handle_histogram_quantile_with_aggregation(
+        self, mock_parser: AsyncMock, mock_db: AsyncMock
+    ) -> None:
+        """Test aggregation support for histogram_quantile queries."""
+        from datetime import UTC, datetime
+
+        mock_parsed = ParsedQuery(
+            raw='histogram_quantile(0.95, sum(http_request_duration_seconds_bucket{method="GET"}))',
+            quantile=0.95,
+            histogram_metric='http_request_duration_seconds_bucket',
+            aggregation='sum',
+            by_labels=['method'],
+        )
+        mock_parser.parse.return_value = mock_parsed
+
+        # Mock histogram data response
+        mock_db.fetch_histogram_data = AsyncMock(
+            return_value=[
+                (
+                    'http_request_duration_seconds',
+                    {'method': 'GET', 'status_code': '200'},
+                    [1, 2, 3],
+                    100.0,
+                    10,
+                    [0.1, 0.5, 1.0],
+                    datetime.now(UTC),
+                )
+            ]
+        )
+
+        result = await PrometheusService.handle_instant_query(
+            'histogram_quantile(0.95, sum(http_request_duration_seconds_bucket{method="GET"}))',
+            1640995200,
+        )
+
+        assert result.status == 'success'
+        assert result.data.resultType == 'vector'
+
+    @patch('api.services.prometheus.timescale_db')
+    @patch('api.services.prometheus.parser')
+    async def test_handle_histogram_range_with_aggregation(
+        self, mock_parser: AsyncMock, mock_db: AsyncMock
+    ) -> None:
+        """Test aggregation support for histogram range queries."""
+        from datetime import UTC, datetime
+
+        mock_parsed = ParsedQuery(
+            raw='sum(rate(http_request_duration_seconds_bucket{method="GET"}[5m]))',
+            metric_name='http_request_duration_seconds_bucket',
+            function='rate',
+            aggregation='sum',
+            by_labels=['method'],
+        )
+        mock_parser.parse.return_value = mock_parsed
+        mock_db.is_histogram_metric = AsyncMock(return_value=True)
+        mock_db.fetch_histogram_series_for_range = AsyncMock(
+            return_value=[
+                (
+                    'http_request_duration_seconds_bucket',
+                    {'method': 'GET', 'status_code': '200'},
+                    0.5,
+                    datetime.now(UTC),
+                ),
+                (
+                    'http_request_duration_seconds_bucket',
+                    {'method': 'GET', 'status_code': '404'},
+                    0.3,
+                    datetime.now(UTC),
+                ),
+            ]
+        )
+
+        result = await PrometheusService.handle_range_query(
+            'sum(rate(http_request_duration_seconds_bucket{method="GET"}[5m]))',
+            1640995200,
+            1640995500,
+            60,
+        )
+
+        assert result.status == 'success'
+        assert result.data.resultType == 'matrix'
