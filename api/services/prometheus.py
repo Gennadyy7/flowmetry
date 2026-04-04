@@ -51,6 +51,13 @@ class PrometheusService:
                 },
             )
             series = await cls._handle_histogram_quantile(parsed, timestamp)
+
+            # Apply aggregation if specified
+            if parsed.aggregation:
+                series = cls._apply_aggregation(
+                    series, parsed.aggregation, parsed.by_labels
+                )
+
             return cls._generate_instant_query_response(
                 parsed=parsed,
                 series=series,
@@ -83,6 +90,13 @@ class PrometheusService:
                 end_ts=timestamp,
                 step_seconds=60,
             )
+
+            # Apply aggregation if specified
+            if parsed.aggregation:
+                series = cls._apply_aggregation(
+                    series, parsed.aggregation, parsed.by_labels
+                )
+
             return cls._generate_instant_query_response(
                 parsed=parsed,
                 series=series,
@@ -215,6 +229,13 @@ class PrometheusService:
             series = await cls._handle_histogram_quantile_range(
                 parsed, start, end, step
             )
+
+            # Apply aggregation if specified
+            if parsed.aggregation:
+                series = cls._apply_aggregation(
+                    series, parsed.aggregation, parsed.by_labels
+                )
+
             return cls._generate_query_range_response(parsed=parsed, series=series)
 
         if parsed.scalar_value is not None:
@@ -237,6 +258,13 @@ class PrometheusService:
                 end_ts=end,
                 step_seconds=step,
             )
+
+            # Apply aggregation if specified
+            if parsed.aggregation:
+                series = cls._apply_aggregation(
+                    series, parsed.aggregation, parsed.by_labels
+                )
+
             return cls._generate_query_range_response(
                 parsed=parsed,
                 series=series,
@@ -400,11 +428,18 @@ class PrometheusService:
                 agg_value = 0.0
 
             attrs = {}
+            metric_name = None
             for i, lbl in enumerate(by_labels):
-                if lbl != '__name__' and key[i]:
+                if lbl == '__name__':
+                    metric_name = key[i] if key[i] else 'aggregated'
+                elif key[i]:
                     attrs[lbl] = key[i]
 
-            result.append((op, attrs, agg_value, timestamp))
+            # Use the original metric name from the first series item if no __name__ in by_labels
+            if metric_name is None and series:
+                metric_name = series[0][0]  # name from first tuple
+
+            result.append((metric_name or 'aggregated', attrs, agg_value, timestamp))
 
         return result
 

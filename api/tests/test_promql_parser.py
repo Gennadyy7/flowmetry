@@ -199,3 +199,25 @@ class TestPromQLParser:
         assert parsed.by_labels == ['job']
         assert parsed.function == 'rate'
         assert parsed.range == RangeVector(5, 'm')
+
+    def test_parse_histogram_quantile_with_aggregation(self) -> None:
+        query = 'histogram_quantile(0.95, sum(http_request_duration_seconds_bucket{method="GET"}))'
+        parsed = parser.parse(query)
+
+        assert parsed.raw == query
+        assert parsed.quantile == 0.95
+        assert parsed.histogram_metric == 'http_request_duration_seconds_bucket'
+        assert parsed.aggregation == 'sum'
+        assert parsed.labels == {'method': 'GET'}
+
+    def test_parse_histogram_quantile_complex(self) -> None:
+        query = 'histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{method="POST"}[5m])))'
+        parsed = parser.parse(query)
+
+        assert parsed.raw == query
+        assert parsed.quantile == 0.99
+        assert parsed.histogram_metric == 'http_request_duration_seconds_bucket'
+        assert parsed.aggregation == 'sum'
+        assert parsed.function == 'rate'
+        assert parsed.range == RangeVector(5, 'm')
+        assert parsed.labels == {'method': 'POST'}
