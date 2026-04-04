@@ -90,7 +90,7 @@ class PromQLParser:
             (?P<func>rate|increase)\s*\(\s*
         )?
         # Metric selector
-        (?P<metric>[a-zA-Z_:][a-zA-Z0-9_:]*\{.*?\}|\{.*?\}|[a-zA-Z_:][a-zA-Z0-9_:]*)
+        (?P<metric>[a-zA-Z_:][a-zA-Z0-9_:]*(?:\{[^}]*\})?|\{[^}]*\})
         # Optional range vector
         (?:
             \[\s*(?P<range>\d+(?:\.\d+)?[smhdw])\s*\]
@@ -146,6 +146,69 @@ class PromQLParser:
         return self._build_parsed_query(query, match)
 
     def _parse_fallback(self, query: str) -> ParsedQuery:
+        # Handle complex expressions that don't match the main pattern
+        if query.startswith('histogram_quantile'):
+            # Parse histogram_quantile with complex inner expressions
+            match = re.match(r'histogram_quantile\s*\(\s*([\d.]+)\s*,\s*(.+)\)', query)
+            if match:
+                quantile = float(match.group(1))
+                inner_expr = match.group(2).strip()
+
+                try:
+                    # Try to parse the inner expression
+                    inner_parsed = self.parse(inner_expr)
+                    return ParsedQuery(
+                        raw=query,
+                        metric_name=inner_parsed.metric_name,
+                        labels=inner_parsed.labels,
+                        function=inner_parsed.function,
+                        range=inner_parsed.range,
+                        aggregation=inner_parsed.aggregation,
+                        by_labels=inner_parsed.by_labels,
+                        without_labels=inner_parsed.without_labels,
+                        scalar_value=inner_parsed.scalar_value,
+                        quantile=quantile,
+                        histogram_metric=inner_parsed.metric_name,
+                    )
+                except Exception:
+                    # If inner parsing fails, try to extract metric name directly
+                    if '{' in inner_expr and '}' in inner_expr:
+                        metric_match = re.search(
+                            r'([a-zA-Z_:][a-zA-Z0-9_:]*)\s*\{', inner_expr
+                        )
+                        if metric_match:
+                            metric_name = metric_match.group(1)
+                            label_match = re.search(r'\{([^}]*)\}', inner_expr)
+                            labels = (
+                                self._parse_labels(label_match.group(1))
+                                if label_match
+                                else {}
+                            )
+
+                            # Extract by_labels from aggregation
+                            by_labels = []
+                            if (
+                                'sum(' in inner_expr
+                                or 'avg(' in inner_expr
+                                or 'min(' in inner_expr
+                                or 'max(' in inner_expr
+                                or 'count(' in inner_expr
+                            ):
+                                # Extract labels from the inner expression
+                                for label_name in labels.keys():
+                                    if label_name not in ['__name__']:
+                                        by_labels.append(label_name)
+
+                            return ParsedQuery(
+                                raw=query,
+                                metric_name=metric_name,
+                                labels=labels,
+                                quantile=quantile,
+                                histogram_metric=metric_name,
+                                aggregation='sum' if 'sum(' in inner_expr else None,
+                                by_labels=by_labels,
+                            )
+
         if query.startswith('{') and query.endswith('}'):
             labels = self._parse_labels(query[1:-1])
             metric_name = labels.pop('__name__', None)
@@ -233,8 +296,31 @@ class PromQLParser:
         )
 
     def _parse_metric_and_labels(self, part: str) -> tuple[str | None, dict[str, str]]:
+        # Handle complex expressions with aggregation
+        if '(' in part and ')' in part and not part.endswith(']'):
+            # This is a complex expression, try to extract the base metric name
+            # For expressions like "sum(metric_name{label=\"value\"})"
+            if '{' in part and '}' in part:
+                # Extract metric name before the first {
+                metric_match = re.search(r'([a-zA-Z_:][a-zA-Z0-9_:]*)\s*\{', part)
+                if metric_match:
+                    metric_name = metric_match.group(1)
+                    # Extract labels from the innermost braces
+                    label_match = re.search(r'\{([^}]*)\}', part)
+                    if label_match:
+                        labels = self._parse_labels(label_match.group(1))
+                        return metric_name, labels
+            return None, {}
+
         selector_match = self._LABEL_SELECTOR_PATTERN.search(part)
         if not selector_match:
+            # Handle range vectors like "metric[5m]" - strip the range part
+            range_match = re.search(r'([a-zA-Z_:][a-zA-Z0-9_:]*)\[\d+[smhdw]\]', part)
+            if range_match:
+                metric_name = range_match.group(1)
+                _PromQLValidator.validate_metric_name(metric_name)
+                return metric_name, {}
+
             _PromQLValidator.validate_metric_name(part)
             return part, {}
 
