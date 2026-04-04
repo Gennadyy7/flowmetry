@@ -1,38 +1,48 @@
-import time
-import random
 from datetime import datetime
+import random
+import time
+
 from opentelemetry import metrics
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.metrics import CallbackOptions, Observation
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.metrics import CallbackOptions, Observation
 
 
 class RealisticMetricsGenerator:
-    def __init__(self, service_name="web-service", endpoint="http://localhost:8001/v1/metrics"):
-        self.resource = Resource.create({
-            "service.name": service_name,
-            "service.version": "1.0.0",
-            "host.name": "server-01",
-            "environment": "production"
-        })
+    def __init__(
+        self, service_name='web-service', endpoint='http://localhost:8001/v1/metrics'
+    ):
+        self.resource = Resource.create(
+            {
+                'service.name': service_name,
+                'service.version': '1.0.0',
+                'host.name': 'server-01',
+                'environment': 'production',
+            }
+        )
 
         try:
             self.exporter = OTLPMetricExporter(
                 endpoint=endpoint,
             )
-            print(f"✅ Используется OTLP экспортер: {endpoint}")
+            print(f'✅ Используется OTLP экспортер: {endpoint}')
         except Exception as e:
-            print(f"Предупреждение: не удалось создать OTLP экспортер: {e}")
-            print("Используется ConsoleExporter для тестирования")
+            print(f'Предупреждение: не удалось создать OTLP экспортер: {e}')
+            print('Используется ConsoleExporter для тестирования')
             from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
+
             self.exporter = ConsoleMetricExporter()
 
-        self.reader = PeriodicExportingMetricReader(self.exporter, export_interval_millis=2000)
-        self.provider = MeterProvider(resource=self.resource, metric_readers=[self.reader])
+        self.reader = PeriodicExportingMetricReader(
+            self.exporter, export_interval_millis=2000
+        )
+        self.provider = MeterProvider(
+            resource=self.resource, metric_readers=[self.reader]
+        )
         metrics.set_meter_provider(self.provider)
-        self.meter = metrics.get_meter("performance-meter")
+        self.meter = metrics.get_meter('performance-meter')
 
         self.request_timestamps = []
         self.last_cleanup_time = time.time()
@@ -53,143 +63,137 @@ class RealisticMetricsGenerator:
 
     def _create_metrics(self):
         self.http_requests_total = self.meter.create_counter(
-            "http_requests_total",
-            description="Total number of HTTP requests",
-            unit="requests"
+            'http_requests_total',
+            description='Total number of HTTP requests',
+            unit='requests',
         )
 
         self.http_errors_total = self.meter.create_counter(
-            "http_errors_total",
-            description="Total number of HTTP errors",
-            unit="errors"
+            'http_errors_total',
+            description='Total number of HTTP errors',
+            unit='errors',
         )
 
         self.database_queries_total = self.meter.create_counter(
-            "database_queries_total",
-            description="Total number of database queries",
-            unit="queries"
+            'database_queries_total',
+            description='Total number of database queries',
+            unit='queries',
         )
 
         self.cache_hits_total = self.meter.create_counter(
-            "cache_hits_total",
-            description="Total number of cache hits",
-            unit="hits"
+            'cache_hits_total', description='Total number of cache hits', unit='hits'
         )
 
         self.cache_misses_total = self.meter.create_counter(
-            "cache_misses_total",
-            description="Total number of cache misses",
-            unit="misses"
+            'cache_misses_total',
+            description='Total number of cache misses',
+            unit='misses',
         )
 
         self.bytes_sent_total = self.meter.create_counter(
-            "network_bytes_sent_total",
-            description="Total bytes sent over network",
-            unit="bytes"
+            'network_bytes_sent_total',
+            description='Total bytes sent over network',
+            unit='bytes',
         )
 
         self.bytes_received_total = self.meter.create_counter(
-            "network_bytes_received_total",
-            description="Total bytes received over network",
-            unit="bytes"
+            'network_bytes_received_total',
+            description='Total bytes received over network',
+            unit='bytes',
         )
 
         self.error_rate_total = self.meter.create_counter(
-            "error_rate_total",
-            description="Error rate tracking",
-            unit="errors"
+            'error_rate_total', description='Error rate tracking', unit='errors'
         )
 
         self.slow_requests_total = self.meter.create_counter(
-            "slow_requests_total",
-            description="Number of slow requests (>1s)",
-            unit="requests"
+            'slow_requests_total',
+            description='Number of slow requests (>1s)',
+            unit='requests',
         )
 
         self.http_request_duration_seconds = self.meter.create_histogram(
-            "http_request_duration_seconds",
-            description="HTTP request duration",
-            unit="seconds"
+            'http_request_duration_seconds',
+            description='HTTP request duration',
+            unit='seconds',
         )
 
         self.database_query_duration_seconds = self.meter.create_histogram(
-            "database_query_duration_seconds",
-            description="Database query duration",
-            unit="seconds"
+            'database_query_duration_seconds',
+            description='Database query duration',
+            unit='seconds',
         )
 
         self.cache_operation_duration_seconds = self.meter.create_histogram(
-            "cache_operation_duration_seconds",
-            description="Cache operation duration",
-            unit="seconds"
+            'cache_operation_duration_seconds',
+            description='Cache operation duration',
+            unit='seconds',
         )
 
         self.active_users_gauge = self.meter.create_observable_gauge(
-            "active_users",
+            'active_users',
             callbacks=[self._get_active_users],
-            description="Number of active users",
-            unit="users"
+            description='Number of active users',
+            unit='users',
         )
 
         self.cpu_usage_percent = self.meter.create_observable_gauge(
-            "cpu_usage_percent",
+            'cpu_usage_percent',
             callbacks=[self._get_cpu_usage],
-            description="CPU usage percentage",
-            unit="percent"
+            description='CPU usage percentage',
+            unit='percent',
         )
 
         self.memory_usage_bytes = self.meter.create_observable_gauge(
-            "memory_usage_bytes",
+            'memory_usage_bytes',
             callbacks=[self._get_memory_usage],
-            description="Memory usage in bytes",
-            unit="bytes"
+            description='Memory usage in bytes',
+            unit='bytes',
         )
 
         self.active_sessions_gauge = self.meter.create_observable_gauge(
-            "active_sessions",
+            'active_sessions',
             callbacks=[self._get_active_sessions],
-            description="Number of active sessions",
-            unit="sessions"
+            description='Number of active sessions',
+            unit='sessions',
         )
 
         self.queue_size_gauge = self.meter.create_observable_gauge(
-            "queue_size",
+            'queue_size',
             callbacks=[self._get_queue_size],
-            description="Current queue size",
-            unit="items"
+            description='Current queue size',
+            unit='items',
         )
 
         self.database_connections_gauge = self.meter.create_observable_gauge(
-            "database_connections",
+            'database_connections',
             callbacks=[self._get_database_connections],
-            description="Active database connections",
-            unit="connections"
+            description='Active database connections',
+            unit='connections',
         )
 
         self.thread_pool_active_gauge = self.meter.create_observable_gauge(
-            "thread_pool_active",
+            'thread_pool_active',
             callbacks=[self._get_thread_pool_active],
-            description="Active threads in pool",
-            unit="threads"
+            description='Active threads in pool',
+            unit='threads',
         )
 
         self.requests_per_second_gauge = self.meter.create_observable_gauge(
-            "requests_per_second",
+            'requests_per_second',
             callbacks=[self._get_requests_per_second],
-            description="Requests per second",
-            unit="rps"
+            description='Requests per second',
+            unit='rps',
         )
 
         self.response_size_bytes = self.meter.create_histogram(
-            "http_response_size_bytes",
-            description="HTTP response size",
-            unit="bytes"
+            'http_response_size_bytes', description='HTTP response size', unit='bytes'
         )
 
         self.upstream_latency_seconds = self.meter.create_histogram(
-            "upstream_latency_seconds",
-            description="Upstream service latency",
-            unit="seconds"
+            'upstream_latency_seconds',
+            description='Upstream service latency',
+            unit='seconds',
         )
 
     def _get_active_users(self, options: CallbackOptions):
@@ -201,7 +205,9 @@ class RealisticMetricsGenerator:
         else:
             base_users = 30
 
-        value = int(base_users * self.load_level + random.randint(-20, 20) * self.load_level)
+        value = int(
+            base_users * self.load_level + random.randint(-20, 20) * self.load_level
+        )
         return [Observation(value=max(0, value), attributes={})]
 
     def _get_cpu_usage(self, options: CallbackOptions):
@@ -239,8 +245,7 @@ class RealisticMetricsGenerator:
         current_time = time.time()
 
         self.request_timestamps = [
-            t for t in self.request_timestamps
-            if current_time - t <= 30.0
+            t for t in self.request_timestamps if current_time - t <= 30.0
         ]
 
         if len(self.request_timestamps) > 1:
@@ -256,7 +261,7 @@ class RealisticMetricsGenerator:
 
     def set_load_level(self, level):
         self.load_level = max(0.0, min(2.0, level))
-        print(f"Уровень нагрузки установлен: {self.load_level}")
+        print(f'Уровень нагрузки установлен: {self.load_level}')
 
     def _simulate_http_requests(self):
         time_increment = random.uniform(0.05, 0.2)
@@ -269,55 +274,79 @@ class RealisticMetricsGenerator:
         elif 20 <= hour <= 22:
             time_factor = 1.3
 
-        requests_per_cycle = int(10 * self.load_level * time_factor + random.randint(1, 5) * self.load_level)
+        requests_per_cycle = int(
+            10 * self.load_level * time_factor + random.randint(1, 5) * self.load_level
+        )
 
         for _ in range(requests_per_cycle):
             method = random.choices(
-                ["GET", "POST", "PUT", "DELETE", "PATCH"],
-                weights=[60, 20, 10, 5, 5]
+                ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], weights=[60, 20, 10, 5, 5]
             )[0]
 
             paths = [
-                "/api/users", "/api/users/{id}", "/api/products", "/api/orders",
-                "/api/auth/login", "/api/auth/logout", "/api/search", "/api/upload",
-                "/health", "/metrics", "/api/dashboard", "/api/reports"
+                '/api/users',
+                '/api/users/{id}',
+                '/api/products',
+                '/api/orders',
+                '/api/auth/login',
+                '/api/auth/logout',
+                '/api/search',
+                '/api/upload',
+                '/health',
+                '/metrics',
+                '/api/dashboard',
+                '/api/reports',
             ]
             path = random.choice(paths)
 
             error_weight = 0.01 * self.load_level
             status_code = random.choices(
                 [200, 201, 204, 400, 401, 403, 404, 500, 502, 503],
-                weights=[70 - error_weight * 10, 8, 2, 3 + error_weight, 2, 1, 5,
-                         2 + error_weight * 2, 1, 1 + error_weight]
+                weights=[
+                    70 - error_weight * 10,
+                    8,
+                    2,
+                    3 + error_weight,
+                    2,
+                    1,
+                    5,
+                    2 + error_weight * 2,
+                    1,
+                    1 + error_weight,
+                ],
             )[0]
 
             self.http_requests_total.add(
                 1,
                 attributes={
-                    "method": method,
-                    "status_code": status_code,
-                    "path": path,
-                    "host": "server-01"
-                }
+                    'method': method,
+                    'status_code': status_code,
+                    'path': path,
+                    'host': 'server-01',
+                },
             )
 
             if status_code >= 400:
                 self.http_errors_total.add(
                     1,
                     attributes={
-                        "method": method,
-                        "status_code": status_code,
-                        "path": path,
-                        "error_type": "client_error" if status_code < 500 else "server_error"
-                    }
+                        'method': method,
+                        'status_code': status_code,
+                        'path': path,
+                        'error_type': 'client_error'
+                        if status_code < 500
+                        else 'server_error',
+                    },
                 )
-                self.error_rate_total.add(1, {"severity": "high" if status_code >= 500 else "medium"})
+                self.error_rate_total.add(
+                    1, {'severity': 'high' if status_code >= 500 else 'medium'}
+                )
 
             if status_code == 500:
                 duration = random.uniform(1.0, 5.0)
-            elif method == "GET":
+            elif method == 'GET':
                 duration = random.uniform(0.01, 0.3)
-            elif method == "POST":
+            elif method == 'POST':
                 duration = random.uniform(0.1, 1.5)
             else:
                 duration = random.uniform(0.1, 2.0)
@@ -325,22 +354,22 @@ class RealisticMetricsGenerator:
             self.http_request_duration_seconds.record(
                 duration,
                 attributes={
-                    "method": method,
-                    "status_code": status_code,
-                    "path": path,
-                    "slow_request": str(duration > 1.0)
-                }
+                    'method': method,
+                    'status_code': status_code,
+                    'path': path,
+                    'slow_request': str(duration > 1.0),
+                },
             )
 
             if duration > 1.0:
-                self.slow_requests_total.add(1, {"threshold": "1s"})
+                self.slow_requests_total.add(1, {'threshold': '1s'})
 
             if status_code == 200:
-                if "api/users" in path:
+                if 'api/users' in path:
                     response_size = random.randint(1000, 15000)
-                elif "api/products" in path:
+                elif 'api/products' in path:
                     response_size = random.randint(2000, 25000)
-                elif path == "/health":
+                elif path == '/health':
                     response_size = random.randint(100, 500)
                 else:
                     response_size = random.randint(500, 8000)
@@ -349,15 +378,13 @@ class RealisticMetricsGenerator:
 
             self.response_size_bytes.record(
                 response_size,
-                attributes={
-                    "method": method,
-                    "status_code": status_code,
-                    "path": path
-                }
+                attributes={'method': method, 'status_code': status_code, 'path': path},
             )
 
-            self.bytes_sent_total.add(response_size, {"direction": "outbound"})
-            self.bytes_received_total.add(random.randint(100, 3000), {"direction": "inbound"})
+            self.bytes_sent_total.add(response_size, {'direction': 'outbound'})
+            self.bytes_received_total.add(
+                random.randint(100, 3000), {'direction': 'inbound'}
+            )
 
             self.request_timestamps.append(time.time())
 
@@ -368,21 +395,22 @@ class RealisticMetricsGenerator:
             self.database_queries_total.add(
                 1,
                 attributes={
-                    "query_type": random.choice(["SELECT", "INSERT", "UPDATE", "DELETE"]),
-                    "table": random.choice(["users", "orders", "products", "logs"])
-                }
+                    'query_type': random.choice(
+                        ['SELECT', 'INSERT', 'UPDATE', 'DELETE']
+                    ),
+                    'table': random.choice(['users', 'orders', 'products', 'logs']),
+                },
             )
 
             db_duration = random.uniform(0.01, 1.5)
             self.database_query_duration_seconds.record(
                 db_duration,
-                attributes={
-                    "query_type": "SELECT",
-                    "success": random.random() > 0.02
-                }
+                attributes={'query_type': 'SELECT', 'success': random.random() > 0.02},
             )
 
-            self.database_connections = max(0, self.database_connections + random.randint(-2, 3))
+            self.database_connections = max(
+                0, self.database_connections + random.randint(-2, 3)
+            )
             self.database_connections = min(50, self.database_connections)
 
         if random.random() < 0.5 * self.load_level:
@@ -397,11 +425,7 @@ class RealisticMetricsGenerator:
                 cache_duration = random.uniform(0.05, 0.3)
 
             self.cache_operation_duration_seconds.record(
-                cache_duration,
-                attributes={
-                    "operation": "get",
-                    "hit": is_hit
-                }
+                cache_duration, attributes={'operation': 'get', 'hit': is_hit}
             )
 
         if random.random() < 0.15:
@@ -422,16 +446,22 @@ class RealisticMetricsGenerator:
             self.upstream_latency_seconds.record(
                 upstream_duration,
                 attributes={
-                    "service": random.choice(
-                        ["auth-service", "payment-service", "notification-service", "email-service"]),
-                    "success": random.random() > 0.07
-                }
+                    'service': random.choice(
+                        [
+                            'auth-service',
+                            'payment-service',
+                            'notification-service',
+                            'email-service',
+                        ]
+                    ),
+                    'success': random.random() > 0.07,
+                },
             )
 
     def start(self, duration_minutes=10):
-        print(f"🚀 Запуск генератора метрик на {duration_minutes} минут")
-        print(f"📊 Уровень нагрузки: {self.load_level}")
-        print(f"🕒 Время начала: {datetime.now().strftime('%H:%M:%S')}")
+        print(f'🚀 Запуск генератора метрик на {duration_minutes} минут')
+        print(f'📊 Уровень нагрузки: {self.load_level}')
+        print(f'🕒 Время начала: {datetime.now().strftime("%H:%M:%S")}')
 
         self.running = True
         start_time = time.time()
@@ -459,11 +489,13 @@ class RealisticMetricsGenerator:
 
                 if iteration % 15 == 0:
                     print(
-                        f"⏱️  Прогресс: {elapsed_minutes:.1f} мин "
-                        f"из {duration_minutes} мин"
+                        f'⏱️  Прогресс: {elapsed_minutes:.1f} мин '
+                        f'из {duration_minutes} мин'
                     )
-                    print(f"📈 Активные сессии: {self.active_sessions}, "
-                          f"Очередь: {self.queue_size}")
+                    print(
+                        f'📈 Активные сессии: {self.active_sessions}, '
+                        f'Очередь: {self.queue_size}'
+                    )
 
                 time.sleep(2.0)
 
@@ -471,32 +503,34 @@ class RealisticMetricsGenerator:
                     self.force_flush_metrics()
 
         except KeyboardInterrupt:
-            print("\n🛑 Остановка генератора...")
+            print('\n🛑 Остановка генератора...')
         finally:
             self.stop()
 
     def stop(self):
         self.running = False
         self.provider.shutdown()
-        print("✅ Генератор остановлен")
+        print('✅ Генератор остановлен')
 
     def force_flush_metrics(self):
         try:
             self.provider.force_flush()
             self.reader.force_flush()
-            print(f"📤 Метрики отправлены принудительно в "
-                  f"{datetime.now().strftime('%H:%M:%S')}")
+            print(
+                f'📤 Метрики отправлены принудительно в '
+                f'{datetime.now().strftime("%H:%M:%S")}'
+            )
         except Exception as e:
-            print(f"⚠️ Ошибка при принудительной отправке: {e}")
+            print(f'⚠️ Ошибка при принудительной отправке: {e}')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     generator = RealisticMetricsGenerator()
 
-    print("=" * 50)
-    print("🎯 Генератор реалистичных метрик для мониторинга")
-    print("=" * 50)
+    print('=' * 50)
+    print('🎯 Генератор реалистичных метрик для мониторинга')
+    print('=' * 50)
 
     generator.start(duration_minutes=45)
 
-    print("✅ Тест завершен успешно")
+    print('✅ Тест завершен успешно')
