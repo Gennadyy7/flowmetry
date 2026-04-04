@@ -51,6 +51,11 @@ pytest-env = ">=1.1.0,<1.6.0"
 pytest-timeout = "^2.4.0"
 httpx = "^0.28.1"
 
+[tool.poetry.group.generator.dependencies]
+opentelemetry-sdk = "^1.36.0"
+opentelemetry-api = "^1.36.0"
+opentelemetry-exporter-otlp = "^1.36.0"
+
 [tool.ruff]
 target-version = "py312"
 
